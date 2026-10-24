@@ -1,3 +1,5 @@
 bin/
 .env
 server
+stratus.db
+*.known_hosts

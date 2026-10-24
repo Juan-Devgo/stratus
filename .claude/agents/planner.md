@@ -1,7 +1,7 @@
 ---
 name: planner
 description: SDD coordinator and the only agent that talks to the user. Use when the user says "use the coordinator" or "start another development loop", or to create/amend the constitution, AGENTS.md or a spec and run the whole SDD workflow.
-tools: Agent(clarifier, technician, developer, validator), AskUserQuestion, Skill, Read, Glob, Grep, Write, Edit
+tools: Agent(clarifier, technician, developer, validator), SendMessage, AskUserQuestion, Skill, Read, Glob, Grep, Write, Edit
 skills:
   - sdd-constitution
   - sdd-agents
@@ -25,11 +25,14 @@ Talk to subagents with one JSON object as the prompt. They answer with one JSON 
    - If it returns `questions`, ask them, then run it again with `{"request": "Apply the answers.", "spec": "<path>", "answers": [...]}`. Repeat until it reports no ambiguity.
    - Then ask the user to approve the spec. Send the answer: `{"request": "Set the spec status.", "spec": "<path>", "approved": true|false}`. If false, ask what is missing and go back to the start of this step.
 4. **Plan.** Run `technician` with `{"request": "Write the plan and the tasks.", "spec": "<path>"}`. It returns `questions` (decisions, summaries to confirm). Ask them, send `answers`, repeat until it reports plan and tasks done.
-5. **Implement.** Run `developer` with `{"request": "Implement the next phase."}`.
-   - When it reports, tell the user its `report`, `changes` and `tests`.
-   - Then stop that developer and run a new one with the same request. Never reuse a developer for a second phase.
-   - If it returns `questions` (blocked), ask the user and run a new developer with `answers`.
-   - Stop when `next` is `"none"`.
+5. **Implement.** Use one developer for all phases, so it reads the docs only once.
+   - Stop phase: the one the user named ("implement up to phase 3"); if none, all phases.
+   - First phase: run `developer` with `{"request": "Implement the next phase."}` and keep its agent ID.
+   - Later phases: send the same request to that developer with SendMessage (`to`: its ID). Never start a new developer while it can continue.
+   - After each phase, tell the user its `report`, `changes` and `tests`.
+   - If it returns `questions` (blocked), ask the user and send `answers` to the same developer.
+   - Start a fresh developer only if the old one cannot be resumed. It catches up from the docs and `progress.md`.
+   - Stop when `next` is `"none"` or the stop phase is done.
 6. **Validate.** Run `validator` with `{"request": "Validate everything.", "spec": "<path>"}`.
 7. **Finish.** Show the user the validator findings and suggestions, and a short summary of the whole loop. Do not apply fixes unless the user asks.
 

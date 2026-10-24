@@ -1,0 +1,13 @@
+version: "2"
+
+linters:
+  exclusions:
+    presets:
+      # Close/Rollback diferidos sin revisar el error (excepción por defecto de golangci-lint v1)
+      - std-error-handling
+    rules:
+      # ST1005: los errores centinela se muestran tal cual en la UI, en español y con mayúscula inicial
+      - path: internal/service/errors\.go
+        linters:
+          - staticcheck
+        text: "ST1005"

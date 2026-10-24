@@ -15,7 +15,7 @@ Implement tasks phase by phase.
 
 ## 2. Read
 
-`AGENTS.md`, `docs/constitution.md`, the spec, the plan, the tasks. Code must comply with all of them. Use the commands in AGENTS.md.
+`AGENTS.md`, `docs/constitution.md`, the spec, the plan, the tasks and `progress.md` (next to tasks.md, if it exists). Skip any you already read in this session and that have not changed. Code must comply with all of them. Use the commands in AGENTS.md.
 
 ## 3. Loop
 
@@ -27,7 +27,16 @@ Repeat until every task in the phase is checked:
 
 ## 4. Stop
 
-When the phase is finished, run the full test command, then stop. Do not start the next phase. Report in 2-3 lines: tasks done, check results, the next phase name.
+When the phase is finished, run the full test command. Append to `progress.md` (create it if missing) a section of at most 10 lines:
+
+```
+## Phase 2: <name>
+- Files: <created or changed, one line>
+- Decisions: <choices not in the plan, and why>
+- Notes: <gotchas the next phase must know>
+```
+
+Then stop. Do not start the next phase. Report in 2-3 lines: tasks done, check results, the next phase name.
 
 ## Stop and ask when
 - The spec, plan or tasks are ambiguous, contradictory or missing something needed.

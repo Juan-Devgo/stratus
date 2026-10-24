@@ -1,0 +1,6 @@
+# Solo la UI corre en Docker; el backend Go corre nativo en el host (necesita VBoxManage).
+services:
+  stratus-ui:
+    build: ./stratus-ui
+    # Red del host: nginx escucha en 127.0.0.1:3000 y alcanza el backend en 127.0.0.1:8080
+    network_mode: host

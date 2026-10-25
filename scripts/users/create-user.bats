@@ -123,6 +123,15 @@ setup() {
   [ ! -e "$(dirname "$keyfile")" ]
 }
 
+@test "create-user no mezcla la salida de visudo ni de passwd con la llave privada" {
+  run --separate-stderr "$SCRIPT" vm1 ana yes yes </dev/null
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "$FAKE_KEY" ]
+  [[ "$output" != *"parsed OK"* ]]
+  [[ "$output" != *"contraseña cambiada"* ]]
+}
+
 @test "AC-9 create-user con sudo escribe la regla NOPASSWD validada; sin sudo no hay paso sudoers" {
   run --separate-stderr "$SCRIPT" vm1 ana yes yes </dev/null
   [ "$status" -eq 0 ]

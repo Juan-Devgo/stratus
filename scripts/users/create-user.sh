@@ -248,7 +248,7 @@ account_created=yes
 #     entonces renombrarla a /etc/sudoers.d/stratus-<username>. Si falla, salir con 5.
 
 if [[ "$sudo_opt" == yes ]]; then
-  guest 5 sh -c 'f=/etc/sudoers.d/stratus-$1; t=/etc/sudoers.d/.stratus-$1; printf "%s ALL=(ALL:ALL) NOPASSWD: ALL\n" "$1" >"$t" && chmod 440 "$t" && visudo -cf "$t" && mv "$t" "$f"' sh "$username"
+  guest 5 sh -c 'f=/etc/sudoers.d/stratus-$1; t=/etc/sudoers.d/.stratus-$1; printf "%s ALL=(ALL:ALL) NOPASSWD: ALL\n" "$1" >"$t" && chmod 440 "$t" && visudo -cf "$t" && mv "$t" "$f"' sh "$username" >&2
 fi
 
 # == 7. Acceso del usuario (REQ-7, REQ-8) ==
@@ -260,13 +260,14 @@ fi
 # 7.3 Con ssh_key=yes y --jump, copiar la llave a jump con jump_sync (la lee del servidor, donde ya
 #     está instalada); si falla, salir con 15 y la limpieza deshace la cuenta.
 # 7.4 Si algo falla, salir con 5.
+# La salida de los comandos de la VM (visudo, passwd) va a stderr: stdout solo lleva el resultado.
 
 if [[ "$ssh_key_opt" == no ]]; then
-  printf '%s:%s\n' "$username" "$password" | guest 5 chpasswd
+  printf '%s:%s\n' "$username" "$password" | guest 5 chpasswd >&2
 else
   guest 5 install -d -m 700 -o "$username" -g "$username" "/home/$username/.ssh"
   guest 5 sh -c 'printf "%s\n" "$2" >"/home/$1/.ssh/authorized_keys" && chown "$1:$1" "/home/$1/.ssh/authorized_keys" && chmod 600 "/home/$1/.ssh/authorized_keys"' sh "$username" "$public_key"
-  guest 5 passwd -l "$username"
+  guest 5 passwd -l "$username" >&2
   # Con --jump, la llave nueva también debe poder entrar por jump (REQ-17). Si jump no se actualiza,
   # sale con 15 y on_exit deshace la cuenta (account_created=yes).
   if [[ -n "$jump_lb" ]]; then

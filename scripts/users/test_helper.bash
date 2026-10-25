@@ -76,6 +76,12 @@ fi
 if [[ -n "\${FAIL_REMOTE:-}" && "\$flat" =~ \$FAIL_REMOTE ]]; then
   exit 1
 fi
+# Como el sistema real: visudo y passwd escriben su aviso en la salida estándar.
+if [[ "\$flat" == *'visudo -cf'* ]]; then
+  echo "/etc/sudoers.d/.stratus-x: parsed OK"
+elif [[ "\$flat" == passwd\ -l* ]]; then
+  echo "passwd: contraseña cambiada."
+fi
 if [[ "\$flat" == *'echo user; elif'* ]]; then
   echo "\${LOOKUP:-free}"
   exit 0

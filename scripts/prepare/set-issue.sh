@@ -175,14 +175,40 @@ done
 
 # == 4. Escribir /etc/issue ==
 # 4.1 Enviar el contenido como un solo argumento, nunca dentro del texto del comando:
-#     vm_exec ... sh -c 'printf "%s\n" "$1" | tee "$2" "$3" >/dev/null' sh "<contenido>" /etc/issue /etc/issue.net
-#     Así el contenido no se interpreta en el shell remoto (P3). El mismo contenido se escribe
-#     también en /etc/issue.net para que se vea al iniciar sesión por SSH.
+#     vm_exec ... sh -c '<guion fijo>' sh "<contenido>"
+#     Así el contenido no se interpreta en el shell remoto (P3).
+# 4.1.1 /etc/issue recibe el contenido tal cual (agetty expande los escapes). sshd no expande
+#     escapes, así que /etc/issue.net recibe el contenido con los escapes ya sustituidos por los
+#     valores de la VM al momento de escribirlo (hostname, fecha, hora, IPv4, SO, kernel,
+#     arquitectura, "ssh" como terminal y número de usuarios; es una foto, no se actualiza).
+# 4.1.2 Configurar "Banner /etc/issue.net" en /etc/ssh/sshd_config.d/10-stratus-banner.conf,
+#     validar con "sshd -t" y recargar ssh.
 # 4.2 Reescribir el archivo completo deja el mismo resultado si se repite (idempotente).
-# 4.3 Si la escritura de cualquiera de los dos archivos falla, reenviar su stderr y salir con 5.
+# 4.3 Si falla la escritura de cualquiera de los archivos, sshd -t o la recarga, reenviar su stderr y salir con 5.
 
-# El contenido viaja como un solo argumento ($1), nunca dentro del texto del comando.
-guest 5 sh -c 'printf "%s\n" "$1" | tee "$2" "$3" >/dev/null' sh "$content" /etc/issue /etc/issue.net
+# El contenido viaja como un solo argumento ($1), nunca dentro del texto del comando. El guion remoto
+# es fijo: no interpola datos del usuario.
+read -r -d '' remote_script <<'REMOTE' || true
+set -e
+printf '%s\n' "$1" >/etc/issue
+n=$(uname -n)
+d=$(date '+%a %b %e %Y')
+t=$(date '+%T')
+ip=$(hostname -I 2>/dev/null | cut -d' ' -f1)
+s=$(uname -s)
+r=$(uname -r)
+m=$(uname -m)
+u=$(who | wc -l)
+printf '%s\n' "$1" | sed \
+  -e 's|\\n|'"$n"'|g' -e 's|\\d|'"$d"'|g' -e 's|\\t|'"$t"'|g' -e 's|\\4|'"$ip"'|g' \
+  -e 's|\\s|'"$s"'|g' -e 's|\\r|'"$r"'|g' -e 's|\\m|'"$m"'|g' -e 's|\\l|ssh|g' \
+  -e 's|\\U|'"$u"' users|g' >/etc/issue.net
+mkdir -p /etc/ssh/sshd_config.d
+printf 'Banner /etc/issue.net\n' >/etc/ssh/sshd_config.d/10-stratus-banner.conf
+sshd -t
+systemctl reload ssh
+REMOTE
+guest 5 sh -c "$remote_script" sh "$content"
 
 # == 5. Resultado ==
 # 5.1 Imprimir en stdout "/etc/issue de <vm_name> actualizado".

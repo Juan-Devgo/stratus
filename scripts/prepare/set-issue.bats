@@ -45,6 +45,14 @@ remote_arg() {
   [ "$(remote_arg 4)" = $'Hola\nHost: \\n\nUsuarios: \\U' ]
 }
 
+@test "AC-14 set-issue escribe el mismo contenido en /etc/issue y /etc/issue.net" {
+  run "$SCRIPT" vm1 Hola hostname
+
+  [ "$status" -eq 0 ]
+  [ "$(remote_arg 5)" = "/etc/issue" ]
+  [ "$(remote_arg 6)" = "/etc/issue.net" ]
+}
+
 @test "AC-14 set-issue sin mensaje escribe solo los campos en el orden recibido" {
   run "$SCRIPT" vm1 "" hostname date
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# set-issue.sh - Reescribe /etc/issue en la VM, por SSH con la llave del backend contra la IP de
+# set-issue.sh - Reescribe /etc/issue y /etc/issue.net en la VM, por SSH con la llave del backend contra la IP de
 # la VM, con un mensaje propio y los campos dinámicos elegidos, que agetty expande en la pantalla
 # de inicio de sesión.
 #
@@ -32,11 +32,11 @@
 #   stderr  diagnósticos
 #
 # Códigos de salida:
-#   0   éxito: /etc/issue tiene el contenido pedido (también si ya lo tenía)
+#   0   éxito: /etc/issue y /etc/issue.net tienen el contenido pedido (también si ya lo tenía)
 #   2   argumentos inválidos o variables de entorno faltantes
 #   3   VM no encontrada en VirtualBox
 #   4   fallo de comunicación con la VM (SSH)
-#   5   fallo al escribir /etc/issue en la VM
+#   5   fallo al escribir /etc/issue o /etc/issue.net en la VM
 #   7   VM sin dirección IP; verifique que esté encendida
 #   12  el balanceador (--jump) está apagado o sin IPv4 en puente
 #   99  operación no implementada
@@ -175,13 +175,14 @@ done
 
 # == 4. Escribir /etc/issue ==
 # 4.1 Enviar el contenido como un solo argumento, nunca dentro del texto del comando:
-#     vm_exec ... sh -c 'printf "%s\n" "$1" > /etc/issue' sh "<contenido>"
-#     Así el contenido no se interpreta en el shell remoto (P3).
+#     vm_exec ... sh -c 'printf "%s\n" "$1" | tee "$2" "$3" >/dev/null' sh "<contenido>" /etc/issue /etc/issue.net
+#     Así el contenido no se interpreta en el shell remoto (P3). El mismo contenido se escribe
+#     también en /etc/issue.net para que se vea al iniciar sesión por SSH.
 # 4.2 Reescribir el archivo completo deja el mismo resultado si se repite (idempotente).
-# 4.3 Si la escritura falla, reenviar su stderr y salir con 5.
+# 4.3 Si la escritura de cualquiera de los dos archivos falla, reenviar su stderr y salir con 5.
 
 # El contenido viaja como un solo argumento ($1), nunca dentro del texto del comando.
-guest 5 sh -c 'printf "%s\n" "$1" >/etc/issue' sh "$content"
+guest 5 sh -c 'printf "%s\n" "$1" | tee "$2" "$3" >/dev/null' sh "$content" /etc/issue /etc/issue.net
 
 # == 5. Resultado ==
 # 5.1 Imprimir en stdout "/etc/issue de <vm_name> actualizado".

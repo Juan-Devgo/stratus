@@ -258,12 +258,13 @@ VBoxManage startvm "$vm_name" --type headless >&2 || fail 4 "No se pudo encender
 # ga_root <ms> <ejecutable> [argumentos...]: ejecuta un programa como root dentro de la VM por Guest
 # Additions, con un límite de <ms> milisegundos (--timeout). La contraseña la lee VBoxManage del
 # archivo (--passwordfile): no va en argv. La salida del programa va a stderr para que stdout solo
-# tenga el resultado.
+# tenga el resultado. Con --exe, VirtualBox 7.2 ya agrega el nombre del programa como argv[0]; si se
+# repitiera tras "--", /bin/sh lo tomaría como un archivo de script ("cannot open sh").
 ga_root() {
   local timeout_ms="$1" exe="$2"
   shift 2
   VBoxManage guestcontrol "$vm_name" run --username root --passwordfile "$APP_GUEST_PASSWORD_FILE" \
-    --timeout "$timeout_ms" --wait-stdout --wait-stderr --exe "$exe" -- "$(basename "$exe")" "$@" >&2
+    --timeout "$timeout_ms" --wait-stdout --wait-stderr --exe "$exe" -- "$@" >&2
 }
 
 # guest_property <propiedad>: imprime el valor de la propiedad de la VM, o nada si no existe.

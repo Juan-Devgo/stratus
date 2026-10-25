@@ -239,6 +239,22 @@ assert_cleanup() {
   grep -qF -- "--passwordfile $APP_GUEST_PASSWORD_FILE" "$CALLS"
 }
 
+@test "create-vm no repite el nombre del ejecutable como argumento tras -- (VirtualBox 7.2 ya lo agrega)" {
+  run "$SCRIPT" vm1 2048 2 "$BASE" eth0
+
+  [ "$status" -eq 0 ]
+  local args=() i
+  mapfile -d '' -t args <"$FAKE/bootstrap.args"
+  for i in "${!args[@]}"; do
+    if [ "${args[i]}" = "--" ]; then
+      # Si se repitiera "sh", /bin/sh lo trataría como un archivo de script.
+      [ "${args[i+1]}" = "-c" ]
+      return 0
+    fi
+  done
+  return 1
+}
+
 @test "AC-40 create-vm hace el bootstrap como root por Guest Additions con una sola llamada" {
   run "$SCRIPT" vm1 2048 2 "$BASE" eth0
 

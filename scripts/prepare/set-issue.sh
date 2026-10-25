@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# set-issue.sh - Reescribe /etc/issue en la VM, por SSH con la llave del backend contra la IP de
+# set-issue.sh - Reescribe /etc/issue y /etc/issue.net en la VM, por SSH con la llave del backend contra la IP de
 # la VM, con un mensaje propio y los campos dinámicos elegidos, que agetty expande en la pantalla
 # de inicio de sesión.
 #
@@ -32,11 +32,11 @@
 #   stderr  diagnósticos
 #
 # Códigos de salida:
-#   0   éxito: /etc/issue tiene el contenido pedido (también si ya lo tenía)
+#   0   éxito: /etc/issue y /etc/issue.net tienen el contenido pedido (también si ya lo tenía)
 #   2   argumentos inválidos o variables de entorno faltantes
 #   3   VM no encontrada en VirtualBox
 #   4   fallo de comunicación con la VM (SSH)
-#   5   fallo al escribir /etc/issue en la VM
+#   5   fallo al escribir /etc/issue o /etc/issue.net en la VM
 #   7   VM sin dirección IP; verifique que esté encendida
 #   12  el balanceador (--jump) está apagado o sin IPv4 en puente
 #   99  operación no implementada
@@ -175,13 +175,40 @@ done
 
 # == 4. Escribir /etc/issue ==
 # 4.1 Enviar el contenido como un solo argumento, nunca dentro del texto del comando:
-#     vm_exec ... sh -c 'printf "%s\n" "$1" > /etc/issue' sh "<contenido>"
+#     vm_exec ... sh -c '<guion fijo>' sh "<contenido>"
 #     Así el contenido no se interpreta en el shell remoto (P3).
+# 4.1.1 /etc/issue recibe el contenido tal cual (agetty expande los escapes). sshd no expande
+#     escapes, así que /etc/issue.net recibe el contenido con los escapes ya sustituidos por los
+#     valores de la VM al momento de escribirlo (hostname, fecha, hora, IPv4, SO, kernel,
+#     arquitectura, "ssh" como terminal y número de usuarios; es una foto, no se actualiza).
+# 4.1.2 Configurar "Banner /etc/issue.net" en /etc/ssh/sshd_config.d/10-stratus-banner.conf,
+#     validar con "sshd -t" y recargar ssh.
 # 4.2 Reescribir el archivo completo deja el mismo resultado si se repite (idempotente).
-# 4.3 Si la escritura falla, reenviar su stderr y salir con 5.
+# 4.3 Si falla la escritura de cualquiera de los archivos, sshd -t o la recarga, reenviar su stderr y salir con 5.
 
-# El contenido viaja como un solo argumento ($1), nunca dentro del texto del comando.
-guest 5 sh -c 'printf "%s\n" "$1" >/etc/issue' sh "$content"
+# El contenido viaja como un solo argumento ($1), nunca dentro del texto del comando. El guion remoto
+# es fijo: no interpola datos del usuario.
+read -r -d '' remote_script <<'REMOTE' || true
+set -e
+printf '%s\n' "$1" >/etc/issue
+n=$(uname -n)
+d=$(date '+%a %b %e %Y')
+t=$(date '+%T')
+ip=$(hostname -I 2>/dev/null | cut -d' ' -f1)
+s=$(uname -s)
+r=$(uname -r)
+m=$(uname -m)
+u=$(who | wc -l)
+printf '%s\n' "$1" | sed \
+  -e 's|\\n|'"$n"'|g' -e 's|\\d|'"$d"'|g' -e 's|\\t|'"$t"'|g' -e 's|\\4|'"$ip"'|g' \
+  -e 's|\\s|'"$s"'|g' -e 's|\\r|'"$r"'|g' -e 's|\\m|'"$m"'|g' -e 's|\\l|ssh|g' \
+  -e 's|\\U|'"$u"' users|g' >/etc/issue.net
+mkdir -p /etc/ssh/sshd_config.d
+printf 'Banner /etc/issue.net\n' >/etc/ssh/sshd_config.d/10-stratus-banner.conf
+sshd -t
+systemctl reload ssh
+REMOTE
+guest 5 sh -c "$remote_script" sh "$content"
 
 # == 5. Resultado ==
 # 5.1 Imprimir en stdout "/etc/issue de <vm_name> actualizado".

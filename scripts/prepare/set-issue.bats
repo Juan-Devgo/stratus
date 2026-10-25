@@ -45,6 +45,19 @@ remote_arg() {
   [ "$(remote_arg 4)" = $'Hola\nHost: \\n\nUsuarios: \\U' ]
 }
 
+@test "AC-14 set-issue escribe /etc/issue.net con los escapes expandidos y configura el Banner de sshd" {
+  run "$SCRIPT" vm1 Hola hostname
+
+  [ "$status" -eq 0 ]
+  # El contenido sigue siendo el argumento 4; el guion remoto (argumento 2) escribe /etc/issue tal
+  # cual, expande los escapes para /etc/issue.net (sshd no lo hace) y activa "Banner /etc/issue.net".
+  [ "$(remote_arg 4)" = $'Hola\nHost: \\n' ]
+  remote_script="$(remote_arg 2)"
+  [[ "$remote_script" == *"/etc/issue.net"* ]]
+  [[ "$remote_script" == *"Banner /etc/issue.net"* ]]
+  [[ "$remote_script" == *"sshd -t"* ]]
+}
+
 @test "AC-14 set-issue sin mensaje escribe solo los campos en el orden recibido" {
   run "$SCRIPT" vm1 "" hostname date
 

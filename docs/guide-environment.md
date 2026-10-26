@@ -56,6 +56,9 @@ It must be one of the names `VBoxManage list bridgedifs` prints on a `Name:` lin
 VBoxManage list bridgedifs | grep '^Name:'
 ```
 
+Use the complete name exactly as printed. On macOS it can contain spaces, for example
+`APP_BRIDGE_ADAPTER='en0: Wi-Fi'`; quote that value when loading it from `.env`.
+
 Prefer a wired interface. On Wi-Fi many access points do not give each VM its own DHCP lease.
 
 ### 2.2 `APP_BASE_DISK` and `APP_HAPROXY_BASE_DISK`
@@ -82,7 +85,8 @@ unset pw
 chmod 600 ~/.stratus/guest-password
 ```
 
-Then set `APP_GUEST_PASSWORD_FILE=/home/<you>/.stratus/guest-password` (absolute path).
+Then set `APP_GUEST_PASSWORD_FILE` to that absolute path (for example
+`/Users/<you>/.stratus/guest-password` on macOS or `/home/<you>/.stratus/guest-password` on Linux).
 
 Notes:
 
@@ -136,8 +140,8 @@ set -a; source .env; set +a
 go run ./cmd/server
 ```
 
-UI in Docker, from the repository root (nginx listens on `127.0.0.1:3000` and proxies `/api` to
-`127.0.0.1:8080`):
+UI in Docker, from the repository root (Compose publishes nginx only on `127.0.0.1:3000`; inside
+the container nginx proxies `/api` to the native backend through `host.docker.internal:8080`):
 
 ```bash
 docker compose up --build

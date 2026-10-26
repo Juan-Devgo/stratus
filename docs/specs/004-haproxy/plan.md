@@ -225,7 +225,9 @@ Scripts (argv; env `APP_SSH_KEY_PATH`, and `APP_GUEST_PASSWORD_FILE` for create)
 
 Validation, step 1 (exit 2, no VBoxManage or ssh call):
 - `lb`, `vm`: `^[a-z0-9][a-z0-9-]{0,31}$`; `lb != vm`.
-- `memory_mb` 512-8192 and `cpus` 1-4. `base_disk` is absolute and `bridge_adapter` matches `^[A-Za-z0-9._:-]{1,64}$`.
+- `memory_mb` 512-8192 and `cpus` 1-4. `base_disk` is absolute and `bridge_adapter` matches
+  `^[A-Za-z0-9._:()+? -]{1,64}$`, including the spaces and parentheses used by VirtualBox
+  interface names on macOS; it must also exactly match `VBoxManage list bridgedifs`.
 - `reserved`: `-` or `^[0-9]{1,3}(,[0-9]{1,3})*$`, each value 1-254. `subnet` is 1-254.
 - `port`: `^[1-9][0-9]{0,4}$` and at most 65535. `frontend_port`: the same rule, and not 22.
 - `server_name`: `^server([1-9]|10)$`.

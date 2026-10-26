@@ -73,7 +73,9 @@ func TestAC20_ExecRunnerSendsSIGTERMFirst(t *testing.T) {
 	dir := t.TempDir()
 	// El script limpia al recibir TERM, como create-vm.sh con su trap de limpieza.
 	script := writeScript(t, dir, "term.sh", "trap 'echo limpieza >&2; exit 143' TERM\nsleep 30 &\nwait")
-	runner := ExecRunner{ScriptsDir: dir, Timeout: 200 * time.Millisecond, KillGrace: 5 * time.Second}
+	// Bash instalado por Homebrew puede tardar más de 200 ms en su primer arranque en macOS. El
+	// timeout debe vencer después de que el script haya alcanzado a instalar el trap que probamos.
+	runner := ExecRunner{ScriptsDir: dir, Timeout: time.Second, KillGrace: 5 * time.Second}
 
 	start := time.Now()
 	res, err := runner.Run(context.Background(), script)

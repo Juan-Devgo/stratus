@@ -18,8 +18,8 @@ section 3 first, because the root password you set here must match the password 
 
 | Requirement | Why | Source |
 |---|---|---|
-| Debian 13, 64-bit | `--ostype Debian_64` | `create-vm.sh` |
-| BIOS firmware (not EFI) | the default of VirtualBox | `create-vm.sh` header |
+| Debian 13, 64-bit, matching the host architecture | `Debian13_arm64` on ARMv8-only hosts; `Debian13_64` otherwise | `create-vm.sh` |
+| Firmware matching the platform | UEFI on ARM64; the VirtualBox default BIOS on x86-64 | `create-vm.sh` header |
 | SATA (AHCI) controller, disk on port 0 | clones attach their differencing disk to `SATA` port 0 | `create-vm.sh` section 4 |
 | Exactly one NIC in the template | clones define their own adapters | `create-vm.sh` header |
 | Guest Additions running at boot | the bootstrap and the IP lookup use them | 001 REQ-30 |
@@ -28,7 +28,7 @@ section 3 first, because the root password you set here must match the password 
 | Root password = content of `APP_GUEST_PASSWORD_FILE` | the bootstrap logs in as root through Guest Additions | 001 REQ-22 |
 | No regular users (UID 1000+) | module 002 would list them and `jump_sync` would copy their keys | 002 REQ-1 |
 | No keys in `/root/.ssh/authorized_keys` | every clone would inherit them | 001 REQ-30 |
-| The disk is not attached to any VM when the app first uses it | `create-vm.sh` marks it `multiattach` and fails with exit 4 otherwise | `create-vm.sh` section 2.3 |
+| The disk is not attached to any VM when the app first uses it | `create-vm.sh` registers it as `multiattach` in the VM attachment | `create-vm.sh` section 4.5 |
 
 The bootstrap that runs on every new VM already regenerates `/etc/machine-id`, the SSH host keys and
 the DHCP identity, sets the hostname and writes `/etc/ssh/sshd_config.d/10-stratus.conf`
@@ -43,13 +43,17 @@ adding anything specific.
 
 | Setting | Value |
 |---|---|
-| Type / version | Linux / Debian (64-bit) |
-| Firmware | BIOS: leave "Enable EFI" unchecked |
+| Type / version | Linux / Debian 13 (ARM 64-bit) on an ARMv8-only host; Debian 13 (64-bit) on x86-64 |
+| Firmware | ARM64: UEFI (the required/default firmware). x86-64: BIOS, leave "Enable EFI" unchecked. |
 | Disk | VDI, 10-20 GB, dynamically allocated. Every clone has this capacity and 001 cannot resize it. |
 | Storage controller | SATA (AHCI), the default, disk on port 0 |
 | Network | **One** NIC, bridged to your LAN interface (you need internet to install packages) |
 
 ### 2.2 Install Debian 13 (netinst, text mode)
+
+Download the installer for the same architecture selected above: `arm64` on Apple Silicon and
+`amd64` on an x86-64 host. A disk installed from the `amd64` image does not boot in VirtualBox on
+Apple Silicon. Do not reuse an x86-64 VDI on an ARMv8-only host.
 
 1. Choose "Install" (text mode).
 2. Set the **root password**. It must be exactly the content of your `APP_GUEST_PASSWORD_FILE`
@@ -110,7 +114,7 @@ its identity elsewhere, adjust the image so clones do not share it.
 
 ```bash
 apt install -y sudo ifupdown openssh-server \
-  dkms build-essential linux-headers-amd64 bzip2
+  dkms build-essential "linux-headers-$(dpkg --print-architecture)" bzip2
 ```
 
 `dkms` and the headers let the Guest Additions modules rebuild after a kernel update. Do not install
@@ -247,7 +251,7 @@ poweroff
 Then on the host:
 
 1. In VirtualBox: right-click the template VM, Remove, **Remove Only** (keep the `.vdi`).
-2. Keep a copy of each `.vdi`. After `create-vm.sh` marks a disk `multiattach` it becomes the
+2. Keep a copy of each `.vdi`. After `create-vm.sh` registers a disk as `multiattach` it becomes the
    immutable parent of every clone's differencing disk.
 3. Put the absolute paths in `stratus-srv/.env`:
 
@@ -283,7 +287,7 @@ ssh root@<vm-ip>        # password login must be refused
 | Exit code | Message | Likely cause |
 |---|---|---|
 | 2 | invalid arguments or environment | `APP_GUEST_PASSWORD_FILE` unreadable, or `<APP_SSH_KEY_PATH>.pub` missing |
-| 4 | "No se pudo marcar el disco base como multiattach..." | the disk is still attached to the template VM; use "Remove Only" |
+| 4 | "No se pudo conectar el disco base..." | the disk is still attached to the template VM, has an incompatible format, or cannot be registered as multiattach; use "Remove Only" and inspect `VBoxManage` diagnostics |
 | 5 | "Guest Additions ... no respondió" | Guest Additions not installed or not running (step 2.7) |
 | 5 | "No se pudo ejecutar un comando como root ... verifique la contraseña" | image root password differs from `APP_GUEST_PASSWORD_FILE` |
 | 5 | "La VM no obtuvo una dirección IP por DHCP" | the bridged interface does not hand out addresses (try a wired interface) |

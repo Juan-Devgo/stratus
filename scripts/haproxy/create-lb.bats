@@ -138,7 +138,9 @@ line_of() {
 }
 
 @test "AC-50 create-lb sale con 8 si no queda ninguna subred libre" {
-  reserved="$(seq -s, 1 254)"
+  # BSD seq de macOS no tiene -s; construir la lista solo con Bash mantiene la prueba portable.
+  printf -v reserved '%s,' {1..254}
+  reserved="${reserved%,}"
 
   run --separate-stderr "$SCRIPT" lb1 1024 1 "$BASE" eth0 "$reserved"
 

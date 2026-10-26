@@ -10,6 +10,7 @@
 - Backend: Go 1.24+, `net/http` with `ServeMux` (standard library).
 - Persistence: SQLite for the operation history. Dependency approved by the user as an exception to constitution P9.
 - SSH: system `ssh` client invoked with `os/exec`.
+- Scripts: Bash 5+ and Bats; macOS system Bash 3.2 is not supported.
 - Frontend: React + React Router in declarative mode (`<BrowserRouter>`/`<Routes>`), Vite, TypeScript, Tailwind, shadcn/ui (see `shadcn` skill), pnpm.
 - Tests: Go `testing` (table-driven), `bats` for bash, Vitest + Testing Library.
 - Deploy: Go backend native on the host (needs VBoxManage); UI in Docker + docker-compose. No CI.

@@ -56,8 +56,10 @@ check_validator() {
 @test "AC-37 validate_base_disk exige una ruta absoluta y validate_bridge un nombre de interfaz" {
   check_validator validate_base_disk ok /vms/haproxy-base.vdi '/ruta con espacios/d.vdi'
   check_validator validate_base_disk bad base.vdi '' $'/ruta\ncon-salto'
-  check_validator validate_bridge ok eth0 wlp0s20f3 en0.1 br:0
-  check_validator validate_bridge bad '' 'eth 0' 'eth0;x' "$(printf 'a%.0s' {1..65})"
+  check_validator validate_bridge ok eth0 wlp0s20f3 en0.1 br:0 'en0: Wi-Fi' \
+    'en3: Adaptador Ethernet (en3)' 'anpi1: USB Ethernet(?)'
+  check_validator validate_bridge bad '' 'eth0;x' 'eth0/path' $'eth0\nmal' \
+    "$(printf 'a%.0s' {1..65})"
 }
 
 @test "AC-37 validate_port acepta 1-65535 y validate_frontend_port rechaza además el 22" {

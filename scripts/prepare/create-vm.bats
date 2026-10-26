@@ -12,8 +12,10 @@ SCRIPT="$PREPARE_DIR/create-vm.sh"
 
 # Comportamiento del stub de VBoxManage. Se controla con variables de entorno de la prueba:
 #   MEDIUM_TYPE      tipo que informa showmediuminfo del disco base (por defecto multiattach)
+#   ORPHAN_MULTIATTACH omite la VM propietaria para simular un multiattach huérfano
 #   BRIDGES          interfaz que lista "list bridgedifs" (por defecto eth0)
-#   FAIL_MODIFYMEDIUM, FAIL_BOOTSTRAP, NO_IP, IGNORE_ACPI   provocan el fallo correspondiente
+#   HOST_ARCHES       arquitecturas que informa "list systemproperties" (por defecto x86)
+#   FAIL_STORAGEATTACH, FAIL_BOOTSTRAP, NO_IP, IGNORE_ACPI   provocan el fallo correspondiente
 #   PROP_NEEDS_WAIT  una propiedad de invitado solo existe después de "guestproperty wait" (y se
 #                    borra con "guestproperty delete"), como al arrancar una VM real
 #   GA_READY_ON      número de la llamada a "guestcontrol ... --exe /bin/true" que tiene éxito (por defecto 1)
@@ -24,10 +26,17 @@ case "$1" in
   showmediuminfo)
     case "${3:-}" in
       diff-uuid) printf 'UUID:           diff-uuid\nParent UUID:    base-uuid\nType:           normal (differencing)\n' ;;
-      *) printf 'UUID:           base-uuid\nParent UUID:    base\nType:           %s\n' "${MEDIUM_TYPE:-multiattach}" ;;
+      *)
+        printf 'UUID:           base-uuid\nParent UUID:    base\nType:           %s\n' "${MEDIUM_TYPE:-multiattach}"
+        if [[ "${MEDIUM_TYPE:-multiattach}" == multiattach && -z "${ORPHAN_MULTIATTACH:-}" ]]; then
+          printf 'In use by VMs:  vm0 (UUID: vm0-uuid)\n'
+        fi ;;
     esac ;;
-  modifymedium) [[ -z "${FAIL_MODIFYMEDIUM:-}" ]] || exit 1 ;;
-  list) [[ "${2:-}" != bridgedifs ]] || printf 'Name:            %s\nGUID:            1234\n' "${BRIDGES:-eth0}" ;;
+  list)
+    case "${2:-}" in
+      bridgedifs) printf 'Name:            %s\nGUID:            1234\n' "${BRIDGES:-eth0}" ;;
+      systemproperties) printf 'Supported platform architectures: %s\n' "${HOST_ARCHES:-x86}" ;;
+    esac ;;
   showvminfo)
     [[ -e "$FAKE/registered" ]] || exit 1
     if [[ "${3:-}" == --machinereadable ]]; then
@@ -35,7 +44,13 @@ case "$1" in
       [[ ! -e "$FAKE/attached" ]] || printf '"SATA-ImageUUID-0-0"="diff-uuid"\n'
     fi ;;
   createvm) touch "$FAKE/registered"; echo poweroff >"$FAKE/vmstate" ;;
-  storageattach) if [[ "$*" == *"--medium none"* ]]; then rm -f "$FAKE/attached"; else touch "$FAKE/attached"; fi ;;
+  storageattach)
+    if [[ "$*" == *"--medium none"* ]]; then
+      rm -f "$FAKE/attached"
+    else
+      [[ -z "${FAIL_STORAGEATTACH:-}" ]] || exit 1
+      touch "$FAKE/attached"
+    fi ;;
   startvm) echo running >"$FAKE/vmstate" ;;
   controlvm)
     case "${3:-}" in
@@ -96,7 +111,7 @@ setup() {
   printf '%s\n' "$PUBKEY" >"$APP_SSH_KEY_PATH.pub"
 
   setup_guest_password
-  unset MEDIUM_TYPE BRIDGES FAIL_MODIFYMEDIUM FAIL_BOOTSTRAP NO_IP IGNORE_ACPI PROP_NEEDS_WAIT GA_READY_ON
+  unset MEDIUM_TYPE ORPHAN_MULTIATTACH BRIDGES HOST_ARCHES FAIL_STORAGEATTACH FAIL_BOOTSTRAP NO_IP IGNORE_ACPI PROP_NEEDS_WAIT GA_READY_ON
 }
 
 # line_of <texto fijo> [n]: número de la n-ésima línea de calls.log que lo contiene (vacío si no hay).
@@ -140,6 +155,28 @@ assert_cleanup() {
   grep -qF -- "startvm vm1 --type headless" "$CALLS"
 }
 
+@test "AC-1 create-vm acepta el nombre de interfaz que VirtualBox informa en macOS" {
+  BRIDGES='en0: Wi-Fi' run --separate-stderr "$SCRIPT" vm1 2048 2 "$BASE" 'en0: Wi-Fi'
+
+  [ "$status" -eq 0 ]
+  grep -qF -- '--nic1 bridged --bridgeadapter1 en0: Wi-Fi' "$CALLS"
+}
+
+@test "AC-26 create-vm usa Debian 13 x86-64 cuando el host admite x86" {
+  run "$SCRIPT" vm1 2048 2 "$BASE" eth0
+
+  [ "$status" -eq 0 ]
+  grep -qF -- 'createvm --name vm1 --ostype Debian13_64 --register' "$CALLS"
+}
+
+@test "AC-26 create-vm usa Debian 13 ARM64 cuando el host solo admite ARMv8" {
+  HOST_ARCHES=ARMv8 run "$SCRIPT" vm1 2048 2 "$BASE" eth0
+
+  [ "$status" -eq 0 ]
+  grep -qF -- 'createvm --name vm1 --ostype Debian13_arm64 --register' "$CALLS"
+  grep -F -- 'modifyvm vm1' "$CALLS" | grep -qF -- '--graphicscontroller vmsvga --vram 16'
+}
+
 @test "AC-48 create-vm rechaza argumentos inválidos sin llamar a VBoxManage ni ssh" {
   local args
   for args in \
@@ -172,20 +209,46 @@ assert_cleanup() {
   ! grep -qF -- "modifymedium" "$CALLS" || return 1
 }
 
-@test "AC-26 create-vm marca el disco base multiattach solo cuando hace falta" {
-  MEDIUM_TYPE="normal" run "$SCRIPT" vm1 2048 2 "$BASE" eth0
+@test "AC-26 create-vm registra el disco normal con storageattach multiattach, sin modifymedium previo" {
+  MEDIUM_TYPE=normal run "$SCRIPT" vm1 2048 2 "$BASE" eth0
 
   [ "$status" -eq 0 ]
-  grep -qF -- "modifymedium disk $BASE --type multiattach" "$CALLS"
-  assert_before "modifymedium disk $BASE --type multiattach" "createvm --name vm1"
+  normal="$(line_of "storageattach vm1 --storagectl SATA --port 0 --device 0 --type hdd --mtype normal --medium $BASE")"
+  detached="$(line_of "storageattach vm1 --storagectl SATA --port 0 --device 0 --medium none")"
+  multi="$(line_of "storageattach vm1 --storagectl SATA --port 0 --device 0 --type hdd --mtype multiattach --medium $BASE")"
+  [ -n "$normal" ]
+  [ -n "$detached" ]
+  [ -n "$multi" ]
+  [ "$normal" -lt "$detached" ]
+  [ "$detached" -lt "$multi" ]
+  ! grep -qF -- "modifymedium" "$CALLS" || return 1
 }
 
-@test "AC-26 create-vm sale con 4 si no puede marcar el disco base multiattach y no crea la VM" {
-  MEDIUM_TYPE="normal" FAIL_MODIFYMEDIUM=1 run --separate-stderr "$SCRIPT" vm1 2048 2 "$BASE" eth0
+@test "AC-38 create-vm recupera un disco multiattach huérfano antes de registrarlo de nuevo" {
+  ORPHAN_MULTIATTACH=1 run "$SCRIPT" vm1 2048 2 "$BASE" eth0
+
+  [ "$status" -eq 0 ]
+  reset="$(line_of "modifymedium disk $BASE --type normal")"
+  normal="$(line_of "storageattach vm1 --storagectl SATA --port 0 --device 0 --type hdd --mtype normal --medium $BASE")"
+  detached="$(line_of "storageattach vm1 --storagectl SATA --port 0 --device 0 --medium none")"
+  multi="$(line_of "storageattach vm1 --storagectl SATA --port 0 --device 0 --type hdd --mtype multiattach --medium $BASE")"
+  [ -n "$reset" ]
+  [ -n "$normal" ]
+  [ -n "$detached" ]
+  [ -n "$multi" ]
+  [ "$reset" -lt "$normal" ]
+  [ "$normal" -lt "$detached" ]
+  [ "$detached" -lt "$multi" ]
+}
+
+@test "AC-44 create-vm limpia si storageattach no puede registrar el disco multiattach" {
+  FAIL_STORAGEATTACH=1 run --separate-stderr "$SCRIPT" vm1 2048 2 "$BASE" eth0
 
   [ "$status" -eq 4 ]
-  [[ "$stderr" == *"No se pudo marcar el disco base como multiattach"* ]]
-  ! grep -qF -- "createvm" "$CALLS" || return 1
+  [[ "$stderr" == *"No se pudo conectar el disco base"* ]]
+  grep -qF -- "createvm --name vm1" "$CALLS"
+  grep -qF -- "unregistervm vm1 --delete" "$CALLS"
+  ! grep -qF -- "modifymedium" "$CALLS" || return 1
 }
 
 @test "AC-41 create-vm rechaza un disco base inexistente" {

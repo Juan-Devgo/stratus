@@ -17,7 +17,7 @@
 - P9: no new dependencies. The GA helper is a function inside `create-vm.sh`, its only user. The single Go interface is `ScriptRunner`, which tests need.
 
 ## 3. Architecture
-- Host: the Go backend runs natively on `127.0.0.1:8080`, next to VirtualBox, the base disk and the bridge interface. docker-compose runs only `stratus-ui` (nginx, `network_mode: host`, listening on `127.0.0.1:3000`). nginx serves the SPA and proxies `/api/` to `127.0.0.1:8080` with a 960 s read/send timeout.
+- Host: the Go backend runs natively on `127.0.0.1:8080`, next to VirtualBox, the base disk and the bridge interface. docker-compose runs only `stratus-ui`, publishes nginx as `127.0.0.1:3000:3000` and maps `host.docker.internal` to the host gateway. nginx serves the SPA and proxies `/api/` to `host.docker.internal:8080` with a 960 s read/send timeout. This works in Docker Desktop and Linux without exposing the unauthenticated UI beyond localhost.
 - VM model: each VM is registered in VirtualBox. Its SATA port 0 holds a differencing image that VirtualBox creates automatically when the multi-attach base disk `APP_BASE_DISK` is attached with `--mtype multiattach`. NIC 1 is bridged to `APP_BRIDGE_ADAPTER`, and the IPv4 comes from the LAN's DHCP server. Guest Additions publish it in the guest property `/VirtualBox/GuestInfo/Net/0/V4/IP`.
 - Data flow of a mutating operation:
   1. The UI validates input with `validation.ts` and calls `api.ts` (`fetch`).
@@ -48,7 +48,7 @@
 - Strategy via interface in `internal/service/script_runner.go` (`ScriptRunner`): service tests use a fake that records argv and returns canned results, so no VirtualBox is needed.
 - Repository in `internal/repository/`: SQL stays out of the service, and tests use a temp SQLite file.
 - Try-lock map in `internal/service/vm_locks.go`: one operation per VM (REQ-15), rejected immediately, no queue.
-- Single try-lock (`createMu sync.Mutex`, `TryLock`) in `PrepareService`: one creation at a time, because all creations touch the shared base disk (marking it multiattach, attaching it). Rejected immediately, no queue (REQ-32, AC-46).
+- Single try-lock (`createMu sync.Mutex`, `TryLock`) in `PrepareService`: one creation at a time, because all creations register or attach the shared multiattach base disk. Rejected immediately, no queue (REQ-32, AC-46).
 - Single source list in `internal/service/prepare_catalog.go`, served by `GET /api/prepare/catalog` (REQ-5).
 - Config list in `stratus-ui/src/features/home/modules.ts`: the home cards and future module routes come from one array (REQ-19).
 - Sourced helper `scripts/prepare/lib/vm-exec.sh`: the 5 guest scripts share one way to resolve the IP and to run SSH (REQ-24, REQ-29).
@@ -138,11 +138,12 @@ Environment (backend):
 | `APP_SSH_KEY_PATH` | required | backend private key. The public key is at `<path>.pub` and the pinned host keys at `<path>.known_hosts`. Inherited by the scripts through the env |
 
 Base disk requirements (documented in `.env.example` and in the header of `create-vm.sh`):
-- Debian 13, installed in a VM with VirtualBox's default BIOS firmware, with a single NIC.
+- Debian 13 matching the host architecture, installed with UEFI on ARM64 or VirtualBox's default
+  BIOS firmware on x86-64, with a single NIC.
 - Guest Additions installed and starting at boot.
 - openssh-server installed.
 - The root password is the content of `APP_GUEST_PASSWORD_FILE`.
-- The disk is not attached to any other VM as a normal disk. `create-vm.sh` marks it `multiattach` if needed.
+- The disk is not attached to another VM when first used. `create-vm.sh` registers it as multiattach through `storageattach --mtype multiattach`.
 
 SQLite schema:
 ```sql
@@ -293,7 +294,10 @@ Scripts (argv; env inherited; stdout is the result; stderr is diagnostics):
 - `vm_name` matches `^[a-z0-9][a-z0-9-]{0,31}$`.
 - `memory_mb` is 512-8192 and `cpus` is 1-4.
 - `base_disk` is an absolute path.
-- `bridge_adapter` matches `^[A-Za-z0-9._:-]{1,64}$`.
+- `bridge_adapter` matches `^[A-Za-z0-9._:()+? -]{1,64}$`; spaces and parentheses are
+  allowed because VirtualBox on macOS reports names such as `en0: Wi-Fi` and
+  `en3: Adaptador Ethernet (en3)`. The value must still exactly match an interface returned by
+  `VBoxManage list bridgedifs`.
 - `APP_GUEST_PASSWORD_FILE` is a readable file.
 - `$APP_SSH_KEY_PATH.pub` exists.
 
@@ -317,13 +321,12 @@ Scripts (argv; env inherited; stdout is the result; stderr is diagnostics):
 1. Checks before `createvm`, none of which register a VM:
    - `base_disk` is not a readable file: `Disco base no encontrado: <path>`, exit 6.
    - `bridge_adapter` is not among the `Name:` lines of `VBoxManage list bridgedifs`: `Interfaz de puente no encontrada: <name>`, exit 6.
-   - `showmediuminfo disk <base>` `Type:` is not `multiattach`: run `modifymedium disk <base> --type multiattach`. If that fails, print `No se pudo marcar el disco base como multiattach; verifique que no esté conectado a otra VM` and exit 4.
    - `showvminfo <vm>` succeeds: `VM ya registrada en VirtualBox`, exit 6.
 2. Create the VM (exit 4 on failure; from here on the cleanup trap is active):
-   - `createvm --name <vm> --ostype Debian_64 --register`
-   - `modifyvm <vm> --memory <m> --cpus <c> --ioapic on --nic1 bridged --bridgeadapter1 <adapter>`
+   - Read `VBoxManage list systemproperties`. On an ARMv8-only host use `Debian13_arm64`; otherwise use `Debian13_64`. Then run `createvm --name <vm> --ostype <selected> --register`. The VDI guest architecture must match the host architecture supported by VirtualBox.
+   - `modifyvm <vm> --memory <m> --cpus <c> --ioapic on --graphicscontroller vmsvga --vram 16 --nic1 bridged --bridgeadapter1 <adapter>`. VMSVGA is explicit because VirtualBox 7.2 on an ARMv8 Mac defaults an ARM Debian VM to VBoxVGA, which fails at startup with `VERR_PGM_RAM_CONFLICT`.
    - `storagectl <vm> --name SATA --add sata --controller IntelAhci`
-   - `storageattach <vm> --storagectl SATA --port 0 --device 0 --type hdd --mtype multiattach --medium <base>`
+   - If the base reports `multiattach` but `showmediuminfo` has neither `In use by VMs:` nor `Child UUIDs:`, it is orphaned after the last child was removed. Reset it to `normal` with `modifymedium disk <base> --type normal` before creating the VM. If the base is `normal`, prime its VirtualBox 7.2 media registration with `storageattach ... --mtype normal --medium <base>` followed immediately by `storageattach ... --medium none`. Then `storageattach <vm> --storagectl SATA --port 0 --device 0 --type hdd --mtype multiattach --medium <base>` changes the registered base to multiattach and creates the VM's differencing disk. If it is an active multiattach base, only the final attachment runs. Calling `modifymedium --type multiattach` on an unattached or attached medium is rejected by VirtualBox 7.2.
    - `startvm <vm> --type headless`
 3. Wait for GA (exit 5 on failure): `guestproperty wait <vm> /VirtualBox/GuestAdd/Version --timeout 180000`, then `guestproperty get` must print `Value:`. After that, `ga_root 10000 /bin/true` is retried up to 8 times with `sleep 5`.
 4. Bootstrap (exit 5 on failure). One call: `ga_root 60000 /bin/sh -c "$BOOTSTRAP" sh "<backend pub key>" "<vm>"`, where `ga_root <ms> <exe> <args...>` runs `VBoxManage guestcontrol <vm> run --username root --passwordfile "$APP_GUEST_PASSWORD_FILE" --timeout <ms> --wait-stdout --wait-stderr --exe <exe> -- <argv0> <args...>`. `BOOTSTRAP` is a constant and runs with `set -e`:
@@ -423,7 +426,7 @@ Private-key usage text in `UserKeyForm`: keep it private, `chmod 600 id_ed25519_
 |---|---|---|---|---|
 | TestAC1_ExecRunnerPassesDiscreteArgs | unit | `stratus-srv/internal/service/script_runner_test.go` | US-1 / REQ-14 / AC-1 | Given a temp script that prints each arg on its own line, when run with `a b; c` and `x`, then stdout has exactly 2 lines `a b; c` and `x` |
 | TestAC20_ExecRunnerKillsOnTimeout | unit | `stratus-srv/internal/service/script_runner_test.go` | US-1..US-5 / REQ-14 / AC-20 | Given a script that runs `sleep 30` and a 200 ms timeout, when run, then `TimedOut` is true and it returns in under 2 s |
-| TestAC20_ExecRunnerSendsSIGTERMFirst | unit | `stratus-srv/internal/service/script_runner_test.go` | US-1..US-5 / REQ-14 / AC-20 | Given a script with `trap 'echo limpieza >&2; exit 143' TERM` that runs `sleep 30 & wait`, a 200 ms timeout and `KillGrace` 5 s, when run, then `TimedOut` is true, `ExitCode` is -1, stderr contains `limpieza`, and it returns in under 2 s |
+| TestAC20_ExecRunnerSendsSIGTERMFirst | unit | `stratus-srv/internal/service/script_runner_test.go` | US-1..US-5 / REQ-14 / AC-20 | Given a script with `trap 'echo limpieza >&2; exit 143' TERM` that runs `sleep 30 & wait`, a 1 s timeout (so Homebrew Bash has installed the trap) and `KillGrace` 5 s, when run, then `TimedOut` is true, `ExitCode` is -1, stderr contains `limpieza`, and it returns in under 2 s |
 | TestAC20_ExecRunnerKillsAfterGrace | unit | `stratus-srv/internal/service/script_runner_test.go` | US-1..US-5 / REQ-14 / AC-20 | Given a script with `trap '' TERM` that loops on `sleep 1`, a 200 ms timeout and `KillGrace` 300 ms, when run, then `TimedOut` is true and it returns in under 2 s |
 | TestAC8_ErrorTypesUnwrapToSentinels (renamed from TestErrorTypesUnwrapToSentinels) | unit | `stratus-srv/internal/service/errors_test.go` | US-1..US-5 / REQ-16 / AC-8 | Given a `ValidationError` and an `OperationError`, when checked with `errors.Is`, then they match `ErrInvalidInput` and `ErrScriptFailed`, and `OperationError.Error()` has the operation, the code and the detail |
 | TestAC37_ExecRunnerCapturesPlaceholderExit | unit | `stratus-srv/internal/service/script_runner_test.go` | US-1..US-5 / REQ-21 / AC-37 | Given a placeholder script, when run, then exit code is 99 and stderr is "Operación no implementada" |
@@ -555,8 +558,9 @@ Private-key usage text in `UserKeyForm`: keep it private, `chmod 600 id_ed25519_
 | AC-1 create-vm passes arguments to VBoxManage | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1 / AC-1 | Given stubs for a valid base disk, bridge `eth0` and IP `192.168.1.50`, when `create-vm.sh vm1 2048 2 <base> eth0`, then `calls.log` has `createvm --name vm1`, a `modifyvm vm1` with `--memory 2048 --cpus 2`, exit 0 and stdout `VM vm1 creada y encendida; IP 192.168.1.50` |
 | AC-48 create-vm rejects invalid arguments (renamed from AC-2) | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1, REQ-21 / AC-2, AC-48 | Given `-vm`, `VM1`, CPUs 5, bridge `eth0;x`, a relative base path or 6 arguments, when run, then exit 2 and no VBoxManage or `ssh` call |
 | AC-26 create-vm attaches the base disk multiattach on a bridged NIC | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1 / AC-26 | Given a valid run, then `calls.log` has `--nic1 bridged --bridgeadapter1 eth0`, `storageattach vm1 --storagectl SATA --port 0 --device 0 --type hdd --mtype multiattach --medium <base>`, and no `natpf1` and no `createmedium` |
-| AC-26 create-vm marks the base disk multiattach only when needed | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1 / AC-26 | Given `showmediuminfo` reports `Type: normal`, then `modifymedium disk <base> --type multiattach` is logged before `createvm`; given `Type: multiattach (default)`, then no `modifymedium` call |
-| AC-26 create-vm exits 4 when it cannot mark the base disk multiattach | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1, REQ-31 / AC-26 | Given `Type: normal` and `modifymedium` exits 1, when run, then exit 4, stderr has "No se pudo marcar el disco base como multiattach" and no `createvm` call |
+| AC-26 create-vm registers a normal unattached base through storageattach | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1 / AC-26 | Given the base starts as `Type: normal`, then after `createvm` it runs, in order, `storageattach ... --mtype normal --medium <base>`, `storageattach ... --medium none`, and `storageattach ... --mtype multiattach --medium <base>`, with no `modifymedium`; given it already starts multiattach, only the last attachment runs |
+| AC-38 create-vm recovers an orphaned multiattach base | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1, REQ-31 / AC-38 | Given the base reports `Type: multiattach` without `In use by VMs:` or `Child UUIDs:`, then it runs `modifymedium disk <base> --type normal` before the normal attach/detach/multiattach registration cycle; an active multiattach base is never modified |
+| AC-44 create-vm cleans up when storageattach cannot register multiattach | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-1, REQ-31 / AC-44 | Given `storageattach --mtype multiattach` exits 1, when run, then exit 4, stderr has "No se pudo conectar el disco base", the newly registered VM is removed, and no `modifymedium` call occurs |
 | AC-41 create-vm rejects a VM already registered in VirtualBox | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-31 / AC-41 | Given `showvminfo vm1` succeeds, when run, then exit 6, stderr has "VM ya registrada en VirtualBox", and no `createvm`, `unregistervm` or `closemedium` call |
 | AC-40 create-vm forces poweroff when the VM ignores ACPI during the restart | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-30 / AC-40 | Given the VM state stays `running` after `acpipowerbutton`, when run, then `controlvm vm1 poweroff` is logged before the second `startvm` |
 | AC-44 create-vm cleans up when the backend key does not open SSH | script | `scripts/prepare/create-vm.bats` | US-1 / REQ-31 / AC-44 | Given `ssh` always exits 255, when run, then exit 5, stderr has "La llave del backend no abrió una sesión SSH" and the cleanup lines |
@@ -658,9 +662,9 @@ Private-key usage text in `UserKeyForm`: keep it private, `chmod 600 id_ed25519_
 | REQ-32 | `PrepareService.createMu` (`TryLock` after validation, before `Insert`), `ErrCreateInProgress`, handler 409, `CreateVmForm.tsx` error `Alert` | AC-46 |
 
 ## 9. Decisions and risks
-- Backend native on the host, UI in docker-compose with `network_mode: host`. Rejected a containerized backend: it needs `/dev/vboxdrv`, the VBoxSVC IPC socket and a matching VirtualBox version. Rejected dropping Docker entirely, because AGENTS.md deploys the UI with compose. The backend binds `127.0.0.1` only, because the app has no authentication.
+- Backend native on the host, UI in docker-compose with an explicit localhost port publication and `host.docker.internal` for the proxy. Rejected `network_mode: host`: it does not publish the UI on Docker Desktop for macOS. Rejected a containerized backend: it needs `/dev/vboxdrv`, the VBoxSVC IPC socket and a matching VirtualBox version. Rejected dropping Docker entirely, because AGENTS.md deploys the UI with compose. The backend and published UI bind only to localhost, because the app has no authentication.
 - Differencing disks over a multi-attach base disk. Rejected full `clonevm`: it is slow and copies the whole disk per VM. Rejected linked clones from a snapshot: they need a registered template VM. Rejected the unattended install: it was slow and not standardized.
-- The base disk is marked `multiattach` before `createvm`, together with the base disk and bridge checks. A failure there registers nothing. Rejected marking it after `storagectl`, which would need the full cleanup for a configuration error.
+- A normal base disk is first attached normally and detached, then registered as `multiattach` by a second `storageattach` after `createvm` and `storagectl`; the cleanup trap removes the new VM if any attachment fails. Rejected `modifymedium`: VirtualBox 7.2 refuses `MultiAttach` both before registration and while the normal disk is attached (`VBOX_E_INVALID_OBJECT_STATE`).
 - `modifyvm --ioapic on`: VirtualBox needs it to start a VM with more than 1 CPU.
 - The GA bootstrap is one `guestcontrol run` of a constant `sh -c` script, with the public key and VM name as positional arguments. This complies with P3, keeps one failure point and logs one auditable line. Rejected one GA call per step: more round trips and partial states. Rejected a separate `lib/` helper for GA: `create-vm.sh` is its only user (P9).
 - Root password through `--passwordfile "$APP_GUEST_PASSWORD_FILE"` only. Rejected passing it in argv, where `ps` shows it and history would need redaction. Rejected having the backend read it, which would put the secret in the backend process for no need (REQ-22). `loadConfig` checks only that the variable is set.
@@ -677,7 +681,7 @@ Private-key usage text in `UserKeyForm`: keep it private, `chmod 600 id_ed25519_
 - The private key travels on script stdout and stays only in backend memory. Rejected writing it to a backend file, which conflicts with P5.
 - One Go package per layer with `prepare_*.go` files. `modernc.org/sqlite` (pure Go, no cgo). Plain controlled forms plus `validation.ts`, no zod or react-hook-form (P9). The UI reads the catalog from the backend (REQ-5). The regeneration confirmation (REQ-7) uses `user_key_generated` from the VM list.
 - A failed `create-backend-key.sh` at startup is logged and does not stop the server.
-- One creation at a time, through a service-wide `createMu.TryLock()` taken after validation and before `Insert`. Every creation touches the shared base disk: it reads and maybe changes its type and attaches it. Two concurrent `modifymedium` or `storageattach` calls on the same medium can fail or race. A second create gets 409 "Ya hay una creación de VM en curso" right away. Rejected a queue: a request could wait up to 15 min and then hit the proxy timeouts. Rejected a per-name lock only: it does not protect the shared disk. Operations on other VMs (start, stop, packages) are not blocked (REQ-32, AC-46).
+- One creation at a time, through a service-wide `createMu.TryLock()` taken after validation and before `Insert`. Every creation registers or attaches the shared base disk. Two concurrent `storageattach` calls on the same medium can fail or race. A second create gets 409 "Ya hay una creación de VM en curso" right away. Rejected a queue: a request could wait up to 15 min and then hit the proxy timeouts. Rejected a per-name lock only: it does not protect the shared disk. Operations on other VMs (start, stop, packages) are not blocked (REQ-32, AC-46).
 - AC mapping of the script tests:
   - Generic argument checks (argument count, VM name `VM1`, relative base path, bad bridge name, no command for `vm_exec`, any argument for `list-vms.sh`) are AC-48 tests.
   - Script tests that use the exact example values of another AC keep that AC and also cite AC-48 in "Covers": AC-7 injection or empty package, AC-15, AC-18 hostnames, AC-25, AC-33 `openssh-server`. They are the script side of the same P3 double check, and renaming them would hide their link to the AC that defines the values.
@@ -688,7 +692,7 @@ Private-key usage text in `UserKeyForm`: keep it private, `chmod 600 id_ed25519_
 - Risk: `unregistervm --delete` could remove a multi-attach parent. Mitigation:
   - Both scripts detach and `closemedium` the differencing image (only a medium with a parent) before `unregistervm`.
   - The real-host demo compares `sha256sum` of the base disk before and after a delete (AC-38).
-- Risk: the base disk is attached to another VM as a normal disk, or booted directly. Mitigation: `modifymedium` fails and creation stops with exit 4 and a message. `.env.example` and the header of `create-vm.sh` state the requirement.
+- Risk: the base disk is attached to another VM as a normal disk, or booted directly. Mitigation: `storageattach --mtype multiattach` fails, the cleanup removes the new VM, and creation returns exit 4. `.env.example` and the header of `create-vm.sh` state the requirement.
 - Risk: the GA version property appears before guest control accepts sessions. Mitigation: `ga_root 10000 /bin/true` is retried 8 times, 5 s apart (up to 120 s), before the bootstrap.
 - Risk: `guestcontrol run --timeout` bounds the guest process but may not bound session start or logon in every VirtualBox version. Mitigation: the backend's 15-minute SIGTERM still stops the script, and the cleanup trap runs within the 30 s grace. The AC-44 budget test checks the bounds that the script passes, not VirtualBox behaviour.
 - Risk: the cleanup takes longer than the 30 s grace (for example a slow `unregistervm`), and SIGKILL interrupts it. Mitigation: the cleanup is a few VBoxManage calls plus `wait_stopped` (10 s). A VM left behind makes the next create of that name exit 6 "VM ya registrada en VirtualBox", and the user deletes it.

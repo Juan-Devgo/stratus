@@ -301,3 +301,17 @@
 - [x] T244 Write "AC-46 shows create-in-progress message" in `stratus-ui/src/features/prepare/CreateVmForm.test.tsx`; fix the form only if it fails (REQ-16, REQ-32, AC-46)
 - [x] T245 Write "AC-47 start shows result" in `stratus-ui/src/features/prepare/VmActions.test.tsx`; fix `VmActions.tsx` only if it fails (REQ-3, REQ-16, AC-47)
 - [x] T246 Run `bats -r scripts/`, then `go test ./...`, `gofmt -l .` and `golangci-lint run` in `stratus-srv/`, then `pnpm typecheck` and `pnpm test` in `stratus-ui/`, and fix findings (REQ-21, AC-24, AC-46, AC-47, AC-48)
+
+## Phase 19: Portable Docker deployment
+- [x] T247 Write `stratus-ui/deploy.bats` to require a localhost-only `3000:3000` publication, the host-gateway alias and the nginx proxy through `host.docker.internal`; confirm it fails with `network_mode: host` (REQ-14)
+- [x] T248 Replace `network_mode: host`, update nginx and the environment guide, rebuild the UI and verify `/`, `/prepare` and `/api/prepare/vms` through port 3000 on Docker Desktop (REQ-14)
+
+## Phase 20: Real-host VirtualBox 7.2 compatibility
+- [x] T249 Change the AC-26 script test so a normal unattached base is registered by an attach-normal/detach/attach-multiattach cycle, with no `modifymedium`, and confirm it fails against the previous sequence (REQ-1, REQ-31, AC-26, AC-44)
+- [x] T250 Implement the VirtualBox 7.2 registration cycle, preserve cleanup on a failed `storageattach`, run the relevant Bats tests and retry the real-host creation (REQ-1, REQ-31, AC-26, AC-44)
+- [x] T251 Write create-vm tests requiring `Debian13_arm64` on an ARMv8-only host and `Debian13_64` otherwise; confirm the current hard-coded `Debian_64` fails them (REQ-1, REQ-31, AC-26)
+- [x] T252 Select the VirtualBox guest type from `list systemproperties`, update the base-image guide, run Bats and retry the real-host creation to validate whether the supplied VDI architecture matches this host (REQ-1, REQ-31, AC-26, AC-44)
+- [x] T253 Add a create-vm test requiring `--graphicscontroller vmsvga --vram 16` and confirm it fails with the ARM default VBoxVGA (REQ-1, REQ-31, AC-26)
+- [x] T254 Configure VMSVGA explicitly, run Bats and retry the real-host creation after reproducing `VERR_PGM_RAM_CONFLICT` without a disk and proving VMSVGA boots (REQ-1, REQ-31, AC-26, AC-44)
+- [x] T255 Add an AC-38 test for an orphaned multiattach base that requires resetting it to normal before the registration cycle, and confirm it fails against the current direct attach (REQ-1, REQ-31, AC-38)
+- [x] T256 Recover only an orphaned multiattach base, preserve active bases, run Bats and retry the real-host creation (REQ-1, REQ-31, AC-38, AC-44)

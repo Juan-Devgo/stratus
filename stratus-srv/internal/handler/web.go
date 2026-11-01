@@ -42,6 +42,37 @@ func RegisterWeb(mux *http.ServeMux, svc *service.WebService) {
 		writeJSON(w, http.StatusOK, res)
 	})
 
+	mux.HandleFunc("POST /api/web/servers/{vm}/page", func(w http.ResponseWriter, r *http.Request) {
+		archive, ok := readArchive(w, r, svc.MaxArchiveBytes())
+		if !ok {
+			return
+		}
+		msg, err := svc.InstallPage(r.Context(), r.PathValue("vm"), archive)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
 	// Últimas 50 operaciones del módulo, la más reciente primero (REQ-36).
 	mux.HandleFunc("GET /api/web/history", historyHandler(svc.History))
+}
+
+// readArchive lee el cuerpo multipart de instalar una página (REQ-9): una sola parte "archive";
+// cualquier otro nombre es 400. Como en 003, el archivo no se lee aquí: el servicio lo copia a un
+// archivo temporal con su propio límite, y el cuerpo completo está limitado a maxBytes más un margen.
+func readArchive(w http.ResponseWriter, r *http.Request, maxBytes int64) (service.ArchiveUpload, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+uploadMargin)
+	reader, err := r.MultipartReader()
+	if err != nil {
+		writeError(w, &service.ValidationError{Message: "La petición debe ser multipart/form-data con la parte archive"})
+		return service.ArchiveUpload{}, false
+	}
+	p, err := reader.NextPart()
+	if err != nil || p.FormName() != "archive" {
+		writeError(w, &service.ValidationError{Message: "La petición debe tener la parte archive"})
+		return service.ArchiveUpload{}, false
+	}
+	return service.ArchiveUpload{Filename: p.FileName(), Body: p}, true
 }

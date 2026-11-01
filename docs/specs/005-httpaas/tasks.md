@@ -56,12 +56,12 @@
 - [x] T049 Build `WebRepository` and `WebService`, pass them to `PrepareService` and call `handler.RegisterWeb` in `stratus-srv/cmd/server/main.go` (REQ-1, AC-1)
 
 ## Phase 4: Install a web page (US-2)
-- [ ] T050 Write the `install-page.bats` tests: AC-11 (scp to `/var/tmp/stratus-page.tar.gz`, backup, extraction, ownership, modes, swap, no `systemctl`), AC-12 (only `site/index.html`: exit 11, text, no scp), AC-13 (`../evil`, absolute path, symlink, corrupt gzip: exit 10, no scp), AC-14 (FAIL_REMOTE on `tar -xzf`: exit 5, restore, cleanup; FAIL_RESTORE: exit 9), AC-15 (swap replaces, no merge), AC-16 (`--jump lb1 web-a`: routed scp; lb1 off: exit 12, no scp), AC-55 and AC-56 in `scripts/web/install-page.bats` (REQ-9, REQ-10, REQ-11, REQ-39, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16, AC-55, AC-56)
-- [ ] T051 Implement `scripts/web/install-page.sh` (REQ-9, REQ-10, REQ-11, REQ-39, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16, AC-55, AC-56)
-- [ ] T052 Write TestAC11_InstallPageArgsAndCleanup, TestAC12_InstallPageMapsIndexMissing, TestAC13_InstallPageSizeAndExtension and TestAC16_InstallPageOnServerPassesJump in `stratus-srv/internal/service/web_page_test.go` (REQ-9, REQ-11, AC-11, AC-12, AC-13, AC-16, AC-17)
-- [ ] T053 Implement `InstallPage` in `stratus-srv/internal/service/web_page.go` (REQ-9, REQ-10, REQ-11, AC-11, AC-12, AC-13, AC-16, AC-17)
-- [ ] T054 Write the page route tests (multipart part `archive` accepted, a missing part or an oversized body rejected with the 003 texts) in `stratus-srv/internal/handler/web_test.go` (REQ-9, AC-11, AC-13)
-- [ ] T055 Implement `readArchive` and `POST /api/web/servers/{vm}/page` in `stratus-srv/internal/handler/web.go` (REQ-9, AC-11, AC-13)
+- [x] T050 Write the `install-page.bats` tests: AC-11 (scp to `/var/tmp/stratus-page.tar.gz`, backup, extraction, ownership, modes, swap, no `systemctl`), AC-12 (only `site/index.html`: exit 11, text, no scp), AC-13 (`../evil`, absolute path, symlink, corrupt gzip: exit 10, no scp), AC-14 (FAIL_REMOTE on `tar -xzf`: exit 5, restore, cleanup; FAIL_RESTORE: exit 9), AC-15 (swap replaces, no merge), AC-16 (`--jump lb1 web-a`: routed scp; lb1 off: exit 12, no scp), AC-55 and AC-56 in `scripts/web/install-page.bats` (REQ-9, REQ-10, REQ-11, REQ-39, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16, AC-55, AC-56)
+- [x] T051 Implement `scripts/web/install-page.sh` (REQ-9, REQ-10, REQ-11, REQ-39, AC-11, AC-12, AC-13, AC-14, AC-15, AC-16, AC-55, AC-56)
+- [x] T052 Write TestAC11_InstallPageArgsAndCleanup, TestAC12_InstallPageMapsIndexMissing, TestAC13_InstallPageSizeAndExtension and TestAC16_InstallPageOnServerPassesJump in `stratus-srv/internal/service/web_page_test.go` (REQ-9, REQ-11, AC-11, AC-12, AC-13, AC-16, AC-17)
+- [x] T053 Implement `InstallPage` in `stratus-srv/internal/service/web_page.go` (REQ-9, REQ-10, REQ-11, AC-11, AC-12, AC-13, AC-16, AC-17)
+- [x] T054 Write the page route tests (multipart part `archive` accepted, a missing part or an oversized body rejected with the 003 texts) in `stratus-srv/internal/handler/web_test.go` (REQ-9, AC-11, AC-13)
+- [x] T055 Implement `readArchive` and `POST /api/web/servers/{vm}/page` in `stratus-srv/internal/handler/web.go` (REQ-9, AC-11, AC-13)
 
 ## Phase 5: Web and bind9 service actions (US-3)
 - [ ] T056 Write the start, stop, restart and status tests (`systemctl <action> nginx` or `apache2`, `active_state=` after start and restart, status exit 3 is success, unit `sshd` exits 2, `--jump` routed), AC-55 and AC-56 in `scripts/web/start-web.bats`, `scripts/web/stop-web.bats`, `scripts/web/restart-web.bats` and `scripts/web/status-web.bats` (REQ-12, REQ-39, AC-18, AC-20, AC-55, AC-56)

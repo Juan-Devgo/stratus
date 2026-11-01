@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"stratus-srv/internal/repository"
@@ -174,5 +175,56 @@ func TestAC53_WebHistoryRoute(t *testing.T) {
 	}
 	if op, _ := ops[0].(map[string]any); op["operation"] != "delete_web" {
 		t.Errorf("operation = %v, se esperaba delete_web", op["operation"])
+	}
+}
+
+// AC-11: POST /api/web/servers/{vm}/page recibe la parte archive y responde con el mensaje.
+func TestAC11_InstallPageRoute(t *testing.T) {
+	runner := &fakeRunner{results: map[string]service.RunResult{
+		"web/install-page.sh": {Stdout: []byte("Página instalada en web-a\n")},
+	}}
+	ts := newTestServerWithLBs(t, runner)
+	ts.registerWebServer(t, "web-a", "nginx")
+
+	status, body := doMultipart(t, http.MethodPost, ts.URL+"/api/web/servers/web-a/page",
+		part{name: "archive", filename: "sitio.tar.gz", content: "contenido"})
+
+	if status != http.StatusOK || body["message"] != "Página instalada en web-a" {
+		t.Errorf("status = %d, body = %v; se esperaba 200 con el mensaje", status, body)
+	}
+}
+
+// AC-13: sin la parte archive, con otro nombre de archivo, demasiado grande o sin index.html, la
+// página se rechaza con los textos de 003.
+func TestAC13_InstallPageRouteRejects(t *testing.T) {
+	tests := []struct {
+		name       string
+		parts      []part
+		result     service.RunResult
+		wantStatus int
+		wantError  string
+	}{
+		{"sin archive", []part{{name: "otro", content: "x"}}, service.RunResult{},
+			http.StatusBadRequest, "La petición debe tener la parte archive"},
+		{"extensión .zip", []part{{name: "archive", filename: "site.zip", content: "x"}}, service.RunResult{},
+			http.StatusBadRequest, "El archivo debe ser .tar.gz"},
+		{"demasiado grande", []part{{name: "archive", filename: "a.tar.gz",
+			content: strings.Repeat("x", maxTestArchive+(1<<20)+1024)}}, service.RunResult{},
+			http.StatusBadRequest, "El archivo supera 200 MB"},
+		{"sin index.html", []part{{name: "archive", filename: "a.tar.gz", content: "x"}},
+			service.RunResult{ExitCode: 11}, http.StatusUnprocessableEntity, "El archivo debe contener index.html en la raíz"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{results: map[string]service.RunResult{"web/install-page.sh": tt.result}}
+			ts := newTestServerWithLBs(t, runner)
+			ts.registerWebServer(t, "web-a", "nginx")
+
+			status, body := doMultipart(t, http.MethodPost, ts.URL+"/api/web/servers/web-a/page", tt.parts...)
+
+			if status != tt.wantStatus || body["error"] != tt.wantError {
+				t.Errorf("status = %d, error = %v; se esperaba %d, %q", status, body["error"], tt.wantStatus, tt.wantError)
+			}
+		})
 	}
 }

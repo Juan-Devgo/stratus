@@ -82,7 +82,7 @@ func newTestServerWithLBs(t *testing.T, runner service.ScriptRunner) testServer 
 	cfg := service.Config{BaseDisk: "/vms/base.vdi", BridgeAdapter: "eth0", KeyTTL: 10 * time.Minute}
 	webRepo := repository.NewWebRepository(db)
 	web := service.NewWebService(service.WebConfig{ApacheBaseDisk: "/vms/apache-base.vdi",
-		NginxBaseDisk: "/vms/nginx-base.vdi", BridgeAdapter: "eth0", Domain: "stratus.lan", MaxArchiveBytes: 200 << 20},
+		NginxBaseDisk: "/vms/nginx-base.vdi", BridgeAdapter: "eth0", Domain: "stratus.lan", MaxArchiveBytes: maxTestArchive},
 		runner, vms, lbs, webRepo, repository.NewDNSRepository(db), history, locks, logger)
 	svc := service.NewPrepareService(cfg, runner, vms, lbs, history, locks, haproxy, web, logger)
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -65,6 +66,22 @@ func (s *WebService) MaxArchiveBytes() int64 {
 func (s *WebService) webType(ctx context.Context, vm string) (string, bool, error) {
 	w, ok, err := s.web.Get(ctx, vm)
 	return w.Type, ok, err
+}
+
+// getWeb valida el nombre y devuelve el tipo del servidor web, o ErrVMNotFound si la VM no es un
+// servidor web registrado.
+func (s *WebService) getWeb(ctx context.Context, vm string) (string, error) {
+	if err := ValidateVMName(vm); err != nil {
+		return "", err
+	}
+	typ, ok, err := s.webType(ctx, vm)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("buscar servidor web %s: %w", vm, ErrVMNotFound)
+	}
+	return typ, nil
 }
 
 // baseDiskMissing devuelve el error de disco base no encontrado del tipo.

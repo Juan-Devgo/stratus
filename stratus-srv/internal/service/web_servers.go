@@ -129,13 +129,8 @@ func (s *WebService) CreateWeb(ctx context.Context, in CreateWebInput) (ActionRe
 // toca) y, si termina bien, borra sus filas de web_servers y de vms. Un servidor asignado a un
 // balanceador se rechaza sin llamar al script (REQ-8).
 func (s *WebService) DeleteWeb(ctx context.Context, vm string) (ActionResult, error) {
-	if err := ValidateVMName(vm); err != nil {
+	if _, err := s.getWeb(ctx, vm); err != nil {
 		return ActionResult{}, err
-	}
-	if _, ok, err := s.webType(ctx, vm); err != nil {
-		return ActionResult{}, err
-	} else if !ok {
-		return ActionResult{}, fmt.Errorf("buscar servidor web %s: %w", vm, ErrVMNotFound)
 	}
 	if _, assigned, err := s.lbs.ServerByVM(ctx, vm); err != nil {
 		return ActionResult{}, err

@@ -147,3 +147,19 @@ func TestAC53_WebHistoryOnlyWebModule(t *testing.T) {
 		t.Errorf("MaxArchiveBytes = %d, se esperaba %d", got, 10<<20)
 	}
 }
+
+// assignToLB registra un balanceador con subred 1 y le asigna la VM como server1.
+func (e webEnv) assignToLB(t *testing.T, lb, vm string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := e.vms.Insert(ctx, lb); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.lbs.InsertLB(ctx, repository.LoadBalancer{Name: lb, Subnet: 1, FrontendPort: 80}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.lbs.InsertServer(ctx, repository.LBServer{LB: lb, Name: "server1", VM: vm, Port: 80,
+		LastIP: "10.10.1.11", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+}

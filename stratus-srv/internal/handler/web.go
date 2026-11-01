@@ -55,6 +55,29 @@ func RegisterWeb(mux *http.ServeMux, svc *service.WebService) {
 		writeJSON(w, http.StatusOK, messageBody{msg})
 	})
 
+	// Una ruta por acción de systemctl (REQ-12): start, stop y restart.
+	for _, action := range []string{"start", "stop", "restart"} {
+		mux.HandleFunc("POST /api/web/servers/{vm}/"+action, func(w http.ResponseWriter, r *http.Request) {
+			res, err := svc.WebAction(r.Context(), r.PathValue("vm"), action)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, res)
+		})
+	}
+
+	mux.HandleFunc("GET /api/web/servers/{vm}/status", func(w http.ResponseWriter, r *http.Request) {
+		output, err := svc.WebStatus(r.Context(), r.PathValue("vm"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Output string `json:"output"`
+		}{output})
+	})
+
 	// Últimas 50 operaciones del módulo, la más reciente primero (REQ-36).
 	mux.HandleFunc("GET /api/web/history", historyHandler(svc.History))
 }

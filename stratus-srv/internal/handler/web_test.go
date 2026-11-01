@@ -228,3 +228,45 @@ func TestAC13_InstallPageRouteRejects(t *testing.T) {
 		})
 	}
 }
+
+// AC-18, AC-21: POST /api/web/servers/{vm}/{start|stop|restart} responde {message, active_state?}.
+func TestAC18_WebActionRoutes(t *testing.T) {
+	for _, action := range []string{"start", "stop", "restart"} {
+		t.Run(action, func(t *testing.T) {
+			out := "Servicio nginx listo en web-a\n"
+			if action != "stop" {
+				out += "active_state=failed\n"
+			}
+			runner := &fakeRunner{results: map[string]service.RunResult{"web/" + action + "-web.sh": {Stdout: []byte(out)}}}
+			ts := newTestServerWithLBs(t, runner)
+			ts.registerWebServer(t, "web-a", "nginx")
+
+			status, body := do(t, http.MethodPost, ts.URL+"/api/web/servers/web-a/"+action, "")
+
+			if status != http.StatusOK || body["message"] != "Servicio nginx listo en web-a" {
+				t.Errorf("status = %d, body = %v", status, body)
+			}
+			state, has := body["active_state"]
+			if action == "stop" && has {
+				t.Errorf("stop no debe traer active_state: %v", body)
+			}
+			if action != "stop" && state != "failed" {
+				t.Errorf("active_state = %v, se esperaba failed", state)
+			}
+		})
+	}
+}
+
+// AC-20: GET /api/web/servers/{vm}/status responde {output}.
+func TestAC20_WebStatusRoute(t *testing.T) {
+	const out = "nginx.service\n     Active: failed\n"
+	runner := &fakeRunner{results: map[string]service.RunResult{"web/status-web.sh": {Stdout: []byte(out)}}}
+	ts := newTestServerWithLBs(t, runner)
+	ts.registerWebServer(t, "web-a", "nginx")
+
+	status, body := do(t, http.MethodGet, ts.URL+"/api/web/servers/web-a/status", "")
+
+	if status != http.StatusOK || body["output"] != out {
+		t.Errorf("status = %d, body = %v", status, body)
+	}
+}

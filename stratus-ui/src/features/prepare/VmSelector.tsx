@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import type { Vm, VmState } from "./types";
+import type { Vm, VmKind, VmState } from "./types";
 
 export const STATE_LABELS: Record<VmState, string> = {
   running: "Encendida",
@@ -10,10 +10,21 @@ export const STATE_LABELS: Record<VmState, string> = {
   unknown: "Desconocido",
 };
 
-// Texto de una VM en el selector: "<nombre> - <Estado> - <ip|->" y, si es un balanceador, " - Balanceador".
+// Etiqueta del tipo de VM (005); una VM común no lleva ninguna.
+export const KIND_LABELS: Record<VmKind, string> = {
+  "": "",
+  apache: "Servidor web (Apache)",
+  nginx: "Servidor web (Nginx)",
+  dns: "Servidor DNS",
+};
+
+// Texto de una VM en el selector: "<nombre> - <Estado> - <ip|->" y, si es un balanceador, " - Balanceador";
+// un servidor web o el servidor DNS llevan su tipo.
 function vmLabel(vm: Vm): string {
   const base = `${vm.name} - ${STATE_LABELS[vm.state]} - ${vm.ip || "-"}`;
-  return vm.role === "lb" ? `${base} - Balanceador` : base;
+  if (vm.role === "lb") return `${base} - Balanceador`;
+  const kind = KIND_LABELS[vm.kind];
+  return kind ? `${base} - ${kind}` : base;
 }
 
 type Props = {

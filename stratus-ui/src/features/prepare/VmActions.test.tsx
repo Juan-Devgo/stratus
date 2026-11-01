@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { Vm } from "./types";
 import { VmActions } from "./VmActions";
 
-const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" };
+const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" };
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -138,5 +138,37 @@ describe("VmActions", () => {
     expect(dialog).toHaveTextContent("disco diferencial");
     expect(dialog).toHaveTextContent("El disco base compartido no se modifica");
     expect(dialog).toHaveTextContent("no se puede deshacer");
+  });
+
+  it("AC-34 delete shows the warning when the DNS record could not be removed", async () => {
+    const warning = "VM eliminada; no se pudo quitar su registro DNS, use Actualizar registros";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(200, { message: "VM vm1 eliminada junto con su disco", warning }),
+    );
+    const user = userEvent.setup();
+    render(<VmActions vm={vm1} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Eliminar" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText("VM vm1 eliminada junto con su disco")).toBeInTheDocument();
+    expect(screen.getByText("Operación completada")).toBeInTheDocument();
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(screen.getByText("Advertencia")).toBeInTheDocument();
+  });
+
+  it("AC-38 start shows both warnings, one per line", async () => {
+    const lb = "VM iniciada; no se pudieron actualizar las IPs del balanceador lb1, use Actualizar IPs";
+    const dns = "Operación completada; no se pudo actualizar el registro DNS de lb1, use Actualizar registros";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(200, { message: "VM lb1 encendida", warning: `${lb}\n${dns}` }),
+    );
+    const user = userEvent.setup();
+    render(<VmActions vm={{ ...vm1, name: "lb1", role: "lb" }} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Iniciar" }));
+
+    const text = await screen.findByText((_, el) => el?.textContent === `${lb}\n${dns}` && el.children.length === 0);
+    expect(text).toHaveClass("whitespace-pre-line");
   });
 });

@@ -72,8 +72,8 @@ describe("Prepare", () => {
   it("AC-3 shows SQLite VMs when listing fails", async () => {
     const body = {
       vms: [
-        { name: "vm1", state: "unknown", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
-        { name: "vm2", state: "unknown", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
+        { name: "vm1", state: "unknown", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
+        { name: "vm2", state: "unknown", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
       ],
       list_error: LIST_ERROR,
     };
@@ -131,7 +131,7 @@ describe("Prepare", () => {
 
   it("AC-17 sets the hostname of the selected VM", async () => {
     const body = {
-      vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" }],
+      vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" }],
       list_error: "",
     };
     const fetchSpy = mockApi(body);
@@ -155,7 +155,7 @@ describe("Prepare", () => {
 
   it("AC-14 applies /etc/issue on the selected VM", async () => {
     const body = {
-      vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" }],
+      vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" }],
       list_error: "",
     };
     const fetchSpy = mockApi(body);
@@ -179,7 +179,7 @@ describe("Prepare", () => {
 
   it("AC-22 shows the history and reloads it after an operation", async () => {
     const body = {
-      vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" }],
+      vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" }],
       list_error: "",
     };
     const fetchSpy = mockApi(body);

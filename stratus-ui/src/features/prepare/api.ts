@@ -64,14 +64,15 @@ export function createVm(input: CreateVmInput): Promise<string> {
   return operation("POST", "/api/prepare/vms", input);
 }
 
-// Encender una VM devuelve el mensaje y, si es un servidor o un balanceador y no se pudieron
-// actualizar las IPs del balanceador, una advertencia (004, REQ-14).
-export interface StartResult {
+// Encender y eliminar una VM devuelven el mensaje y, si una actualización posterior falló, una
+// advertencia: las IPs del balanceador (004, REQ-14) o el registro DNS (005, REQ-24, REQ-26). Varias
+// advertencias llegan en el mismo texto, una por línea.
+export interface ActionResult {
   message: string;
   warning?: string;
 }
 
-export function startVm(name: string): Promise<StartResult> {
+export function startVm(name: string): Promise<ActionResult> {
   return request("POST", vmPath(name, "/start"));
 }
 
@@ -79,8 +80,8 @@ export function stopVm(name: string): Promise<string> {
   return operation("POST", vmPath(name, "/stop"));
 }
 
-export function deleteVm(name: string): Promise<string> {
-  return operation("DELETE", vmPath(name));
+export function deleteVm(name: string): Promise<ActionResult> {
+  return request("DELETE", vmPath(name));
 }
 
 // Catálogo de paquetes sugeridos; la lista vive solo en el backend (REQ-5).

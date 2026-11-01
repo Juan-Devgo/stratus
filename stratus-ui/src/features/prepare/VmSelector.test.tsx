@@ -5,8 +5,8 @@ import type { Vm } from "./types";
 import { VmSelector } from "./VmSelector";
 
 const vms: Vm[] = [
-  { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
-  { name: "vm2", state: "unknown", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
+  { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
+  { name: "vm2", state: "unknown", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
 ];
 
 describe("VmSelector", () => {
@@ -26,8 +26,8 @@ describe("VmSelector", () => {
 
   it("AC-42 shows - for a VM without IP", async () => {
     const mixed: Vm[] = [
-      { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
-      { name: "vm2", state: "poweroff", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
+      { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
+      { name: "vm2", state: "poweroff", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
     ];
     const user = userEvent.setup();
     render(<VmSelector vms={mixed} value={null} onChange={vi.fn()} />);
@@ -40,9 +40,9 @@ describe("VmSelector", () => {
 
   it("AC-9 labels a load balancer with Balanceador", async () => {
     const withLb: Vm[] = [
-      { name: "lb1", state: "running", ip: "192.168.1.60", user_key_generated: false, role: "lb", lb: "", lb_ip: "" },
-      { name: "web-a", state: "running", ip: "10.10.1.11", user_key_generated: false, role: "server", lb: "lb1", lb_ip: "192.168.1.60" },
-      { name: "vm1", state: "poweroff", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
+      { name: "lb1", state: "running", ip: "192.168.1.60", user_key_generated: false, role: "lb", lb: "", lb_ip: "", kind: "" },
+      { name: "web-a", state: "running", ip: "10.10.1.11", user_key_generated: false, role: "server", lb: "lb1", lb_ip: "192.168.1.60", kind: "" },
+      { name: "vm1", state: "poweroff", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
     ];
     const user = userEvent.setup();
     render(<VmSelector vms={withLb} value={null} onChange={vi.fn()} />);
@@ -52,6 +52,24 @@ describe("VmSelector", () => {
     expect(await screen.findByRole("option", { name: "lb1 - Encendida - 192.168.1.60 - Balanceador" })).toBeInTheDocument();
     // Un servidor y una VM común no llevan la etiqueta.
     expect(screen.getByRole("option", { name: "web-a - Encendida - 10.10.1.11" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "vm1 - Apagada - -" })).toBeInTheDocument();
+  });
+
+  it("AC-8 labels web servers and the DNS server by kind", async () => {
+    const kinds: Vm[] = [
+      { name: "web-a", state: "running", ip: "192.168.1.40", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "nginx" },
+      { name: "web-b", state: "running", ip: "10.10.1.11", user_key_generated: false, role: "server", lb: "lb1", lb_ip: "192.168.1.60", kind: "apache" },
+      { name: "dns1", state: "running", ip: "192.168.1.53", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "dns" },
+      { name: "vm1", state: "poweroff", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
+    ];
+    const user = userEvent.setup();
+    render(<VmSelector vms={kinds} value={null} onChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("combobox", { name: "VM de trabajo" }));
+
+    expect(await screen.findByRole("option", { name: "web-a - Encendida - 192.168.1.40 - Servidor web (Nginx)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "web-b - Encendida - 10.10.1.11 - Servidor web (Apache)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "dns1 - Encendida - 192.168.1.53 - Servidor DNS" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "vm1 - Apagada - -" })).toBeInTheDocument();
   });
 });

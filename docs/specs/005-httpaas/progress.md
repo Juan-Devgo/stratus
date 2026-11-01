@@ -59,3 +59,8 @@
 - Files: `service/dns_service_test.go` (TestAC50_CrossModuleLocks, TestAC51_DNSRecordPolicy, TestAC53_DNSHistoryLimit, `countOps`), `service/web_service_test.go` (TestAC51_WebRecordPolicy, TestAC53_WebHistoryLimit).
 - Decisions: AC-51 and AC-53 tests are split per module (`_Web…`/`_DNS…`) because both files share the package. The policy tests also run 20 successful list reads (`ListWebServers`, `Overview`) to check `list_web`/`list_dns` stay out.
 - Notes: T114 needed no code change: every test passed on the first run (also with `-race`). No script changed, so bats were not rerun in this phase (0 failures at Phase 9).
+
+## Phase 11: Kinds and warnings in the 001 and 004 screens (US-5, US-6, US-8)
+- Files: `features/prepare/{types,api}.ts`, `VmSelector.tsx`, `VmActions.tsx`; `features/haproxy/{api.ts,AssignServerForm,ServerTable,LbActions}.tsx`; `features/services/StateWarning.tsx`; new `components/WarningAlert.tsx`; tests and every `Vm` fixture (`kind: ""`).
+- Decisions: `StartResult` renamed `ActionResult` (start, delete VM, delete LB, assign, remove). New shared `WarningAlert` (title "Advertencia", `whitespace-pre-line`) replaces the inline Alert of `VmActions`; Phases 12-13 reuse it. `KIND_LABELS` exported from `VmSelector.tsx`; an LB keeps " - Balanceador", other kinds add " - Servidor web (Nginx|Apache)" / " - Servidor DNS".
+- Notes: `StateWarning` `hint` defaults to "revise Estado y Logs" (003); web/dns pass "revise Estado". Each component clears its warning when a new action starts.

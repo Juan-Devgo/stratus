@@ -97,4 +97,17 @@ describe("ServerTable", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("AC-37 shows the warning when the DNS record could not be updated", async () => {
+    const warning = "Operación completada; no se pudo actualizar el registro DNS de web-a, use Actualizar registros";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { message: "Servidor web-a quitado de lb1", warning }));
+    const user = userEvent.setup();
+    render(<ServerTable servers={servers} lbOff={false} lb="lb1" onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Quitar web-a" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText("Servidor web-a quitado de lb1")).toBeInTheDocument();
+    expect(screen.getByText(warning)).toBeInTheDocument();
+  });
 });

@@ -14,9 +14,9 @@ const SERVERS = [
   { name: "server2", vm: "web-b", ip: "10.10.1.12", port: 8080, state: "-" },
 ];
 const VMS = [
-  { name: "lb1", state: "running", ip: "192.168.1.60", user_key_generated: false, role: "lb", lb: "", lb_ip: "" },
-  { name: "web-a", state: "running", ip: "10.10.1.11", user_key_generated: false, role: "server", lb: "lb1", lb_ip: "192.168.1.60" },
-  { name: "web-c", state: "running", ip: "192.168.1.70", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
+  { name: "lb1", state: "running", ip: "192.168.1.60", user_key_generated: false, role: "lb", lb: "", lb_ip: "", kind: "" },
+  { name: "web-a", state: "running", ip: "10.10.1.11", user_key_generated: false, role: "server", lb: "lb1", lb_ip: "192.168.1.60", kind: "" },
+  { name: "web-c", state: "running", ip: "192.168.1.70", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
 ];
 
 // Respuestas del backend falso; cada prueba cambia lo que necesita.

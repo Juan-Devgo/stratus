@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { PackageForm } from "./PackageForm";
 import type { Vm } from "./types";
 
-const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" };
+const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" };
 const catalog = ["openssh-server", "haproxy", "nginx", "apache2", "curl", "htop", "git", "ufw"];
 const SSH_BLOCKED = "No se puede eliminar openssh-server: el backend lo usa para conectarse";
 

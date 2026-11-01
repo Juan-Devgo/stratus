@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
+import { WarningAlert } from "@/components/WarningAlert";
 import { useOperation } from "@/features/prepare/useOperation";
 
 import { deleteLb, refreshLb } from "./api";
@@ -29,6 +30,8 @@ export function LbActions({ lb, onDone }: Props) {
   const { pending, result, run } = useOperation();
   const [active, setActive] = useState<Action | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Advertencia de la última eliminación; se borra al empezar cualquier otra acción.
+  const [warning, setWarning] = useState("");
   const disabled = lb === null || pending;
 
   async function execute(action: Action, fn: (name: string) => Promise<string>) {
@@ -36,6 +39,7 @@ export function LbActions({ lb, onDone }: Props) {
       return;
     }
     setActive(action);
+    setWarning("");
     await run(() => fn(lb.name));
     setActive(null);
     onDone();
@@ -71,7 +75,11 @@ export function LbActions({ lb, onDone }: Props) {
               variant="destructive"
               onClick={() => {
                 setConfirmOpen(false);
-                void execute("delete", deleteLb);
+                void execute("delete", async (name) => {
+                  const res = await deleteLb(name);
+                  setWarning(res.warning ?? "");
+                  return res.message;
+                });
               }}
             >
               Confirmar
@@ -81,6 +89,7 @@ export function LbActions({ lb, onDone }: Props) {
       </AlertDialog>
 
       <OperationResult result={result} />
+      <WarningAlert warning={warning} />
     </FieldGroup>
   );
 }

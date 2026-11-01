@@ -71,3 +71,9 @@
 - Decisions: `InstallPageDialog({vm|null, onClose, onDone})` copies the 003 two-step redeploy dialog (file, then warning "Se reemplazará todo /var/www/html de <vm>"); multipart has only the `archive` part. `validatePageFile` reuses `validateArchive` with its own missing-file text.
 - Decisions: `WebTable` uses a data row plus a full-width actions row per server; each component owns its `useOperation`, and the screen's `reloading` flag is the shared `busy` (the backend locks reject overlaps anyway).
 - Notes: UI 247 tests pass; typecheck and build OK. Phase 13 needs a shadcn `Switch` (not installed yet).
+
+## Phase 13: DNS screen and home (US-4, US-5, US-6, US-7)
+- Files: new `features/dns/{types,api}.ts`, `CreateDnsForm`, `DnsServerPanel`, `RecordTable` (+ tests), `routes/Dns.tsx` (+ test), `components/ui/switch.tsx` (shadcn); `App.tsx` route `/dns`; `features/home/modules.ts` and `Home.test.tsx` (six cards).
+- Decisions: `Dns.tsx` reads only `GET /api/dns` and the history (the overview already has every VM, so no `listVms`); it waits for the first read before choosing form or panel. Without a server the records card is hidden.
+- Decisions: `DnsServerPanel` reuses `UnitButtons` (unit `named`) with "Actualizar registros" and "Eliminar" as extra buttons; a successful delete also calls `toast.success` because the panel unmounts on reload. `RecordTable` has a checkbox only for VMs without record, sends them in table order, lists `results` as "<vm>: <message>" under `aria-label="Resultado por VM"`, and uses a controlled `Switch` "Usar como resolvedor en <vm>" (PUT on, DELETE off).
+- Notes: shadcn generated `switch.tsx` with `import { cn } from "cn"`, the same as the other ui files. UI 262 tests pass; typecheck and build OK.

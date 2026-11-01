@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router";
 
 import { AppLayout } from "./components/AppLayout";
+import { Dns } from "./routes/Dns";
 import { HAProxy } from "./routes/HAProxy";
 import { Home } from "./routes/Home";
 import { Prepare } from "./routes/Prepare";
@@ -19,6 +20,7 @@ export function App() {
         <Route path="/services" element={<Services />} />
         <Route path="/haproxy" element={<HAProxy />} />
         <Route path="/web" element={<Web />} />
+        <Route path="/dns" element={<Dns />} />
       </Route>
     </Routes>
   );

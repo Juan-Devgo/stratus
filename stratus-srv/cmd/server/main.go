@@ -23,7 +23,8 @@ const (
 	killGrace = 30 * time.Second
 	// writeTimeout deja un minuto de margen sobre scriptTimeout para escribir la respuesta.
 	writeTimeout = 16 * time.Minute
-	// maxArchiveBytes es el tamaño máximo del .tar.gz de un servicio (REQ-4).
+	// maxArchiveBytes es el tamaño máximo del .tar.gz de un servicio (003 REQ-4) y de una página web
+	// (005 REQ-9).
 	maxArchiveBytes = 200 << 20
 	// userKeyTTL es cuánto vive en memoria la llave privada del usuario (REQ-8).
 	userKeyTTL = 10 * time.Minute
@@ -59,6 +60,8 @@ func main() {
 	vms := repository.NewVMRepository(db)
 	lbs := repository.NewLBRepository(db)
 	history := repository.NewHistoryRepository(db)
+	webRepo := repository.NewWebRepository(db)
+	dnsRepo := repository.NewDNSRepository(db)
 
 	// HAProxyService va antes que PrepareService: eliminar un balanceador desde 001 y refrescar sus
 	// IPs al encender una VM pasan por él.
@@ -67,12 +70,22 @@ func main() {
 		BridgeAdapter: cfg.BridgeAdapter,
 	}, runner, vms, lbs, history, locks, logger)
 
+	// WebService también va antes que PrepareService: el tipo del selector, las reglas de paquetes y
+	// la eliminación de un servidor web desde 001 pasan por él.
+	web := service.NewWebService(service.WebConfig{
+		ApacheBaseDisk:  cfg.ApacheBaseDisk,
+		NginxBaseDisk:   cfg.NginxBaseDisk,
+		BridgeAdapter:   cfg.BridgeAdapter,
+		Domain:          cfg.DNSDomain,
+		MaxArchiveBytes: maxArchiveBytes,
+	}, runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
+
 	prepare := service.NewPrepareService(service.Config{
 		BaseDisk:      cfg.BaseDisk,
 		BridgeAdapter: cfg.BridgeAdapter,
 		SSHKeyPath:    cfg.SSHKeyPath,
 		KeyTTL:        userKeyTTL,
-	}, runner, vms, lbs, history, locks, haproxy, logger)
+	}, runner, vms, lbs, history, locks, haproxy, web, logger)
 
 	users := service.NewUsersService(service.UsersConfig{KeyTTL: userKeyTTL}, runner,
 		vms, lbs, history, locks, logger)
@@ -89,6 +102,7 @@ func main() {
 	handler.RegisterUsers(mux, users)
 	handler.RegisterServices(mux, services)
 	handler.RegisterHAProxy(mux, haproxy)
+	handler.RegisterWeb(mux, web)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

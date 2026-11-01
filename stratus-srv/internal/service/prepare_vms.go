@@ -19,6 +19,7 @@ type VMView struct {
 	Role             string `json:"role"`  // vm, lb o server (004)
 	LB               string `json:"lb"`    // de un servidor, su balanceador; si no, vacío
 	LBIP             string `json:"lb_ip"` // de un servidor, la IPv4 en puente de su balanceador
+	Kind             string `json:"kind"`  // "", apache o nginx (005): el tipo para el selector
 }
 
 // ListVMs devuelve las VMs registradas con su estado y su rol (vm, lb o server). Si list-vms.sh
@@ -63,6 +64,11 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 			IP:               status.ip,
 			UserKeyGenerated: row.UserKeyGenerated,
 			Role:             "vm",
+		}
+		if typ, ok, err := s.web.webType(ctx, row.Name); err != nil {
+			return nil, "", err
+		} else if ok {
+			view.Kind = typ
 		}
 		switch {
 		case isLB[row.Name]:
@@ -185,7 +191,8 @@ func (s *PrepareService) StopVM(ctx context.Context, name string) (string, error
 //
 // Reglas del módulo 004 (REQ-6, REQ-12): una VM asignada a un balanceador se rechaza con
 // ErrVMIsServer; un balanceador con servidores, con ErrLBHasServers; y un balanceador sin
-// servidores se elimina con delete-lb.sh, que también quita su red interna.
+// servidores se elimina con delete-lb.sh, que también quita su red interna. Un servidor web (005)
+// se elimina con WebService.DeleteWeb, que también borra su tipo.
 func (s *PrepareService) DeleteVM(ctx context.Context, name string) (string, error) {
 	if _, err := s.getVM(ctx, name); err != nil {
 		return "", err
@@ -204,6 +211,16 @@ func (s *PrepareService) DeleteVM(ctx context.Context, name string) (string, err
 		return msg, nil
 	} else if !errors.Is(err, repository.ErrLBNotFound) {
 		return "", err
+	}
+	if _, isWeb, err := s.web.webType(ctx, name); err != nil {
+		return "", err
+	} else if isWeb {
+		res, err := s.web.DeleteWeb(ctx, name)
+		if err != nil {
+			return "", err
+		}
+		s.keys.Discard(name)
+		return res.Message, nil
 	}
 	deleteRow := func(ctx context.Context) error {
 		s.keys.Discard(name)

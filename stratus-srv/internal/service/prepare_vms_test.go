@@ -109,7 +109,9 @@ func newTestEnv(t *testing.T, runner ScriptRunner) testEnv {
 	logger := log.New(env.logs, "", 0)
 	haproxy := NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
 		runner, env.vms, env.lbs, env.history, locks, logger)
-	env.svc = NewPrepareService(cfg, runner, env.vms, env.lbs, env.history, locks, haproxy, logger)
+	web := NewWebService(WebConfig{}, runner, env.vms, env.lbs, repository.NewWebRepository(db),
+		repository.NewDNSRepository(db), env.history, locks, logger)
+	env.svc = NewPrepareService(cfg, runner, env.vms, env.lbs, env.history, locks, haproxy, web, logger)
 	return env
 }
 
@@ -126,7 +128,9 @@ func newPrepareForTest(t *testing.T, runner ScriptRunner, vms *repository.VMRepo
 	t.Cleanup(func() { db.Close() })
 	lbs := repository.NewLBRepository(db)
 	haproxy := NewHAProxyService(HAProxyConfig{}, runner, vms, lbs, history, locks, logger)
-	return NewPrepareService(Config{KeyTTL: 1}, runner, vms, lbs, history, locks, haproxy, logger)
+	web := NewWebService(WebConfig{}, runner, vms, lbs, repository.NewWebRepository(db), repository.NewDNSRepository(db),
+		history, locks, logger)
+	return NewPrepareService(Config{KeyTTL: 1}, runner, vms, lbs, history, locks, haproxy, web, logger)
 }
 
 // register registra una VM directamente en SQLite, sin pasar por el script.
@@ -976,5 +980,52 @@ func TestStartFailureSkipsRefresh(t *testing.T) {
 	}
 	if n := len(runner.callsTo("haproxy/refresh-lb.sh")); n != 0 {
 		t.Errorf("refresh-lb.sh se llamó %d veces, se esperaban 0", n)
+	}
+}
+
+// AC-8: en el selector de 001 cada VM trae su tipo: el de servidor web o vacío.
+func TestAC8_ListVMsKind(t *testing.T) {
+	runner := &fakeRunner{results: map[string]RunResult{
+		"prepare/list-vms.sh": {Stdout: []byte("web-a running 192.168.1.40\nweb-b poweroff -\nvm1 running 192.168.1.50\n")},
+	}}
+	env := newWebEnv(t, runner)
+	env.registerWeb(t, "web-a", WebTypeNginx)
+	env.registerWeb(t, "web-b", WebTypeApache)
+	if _, err := env.vms.Insert(context.Background(), "vm1"); err != nil {
+		t.Fatal(err)
+	}
+
+	vms, _, err := env.prepare.ListVMs(context.Background())
+	if err != nil {
+		t.Fatalf("ListVMs: %v", err)
+	}
+
+	got := map[string]string{}
+	for _, vm := range vms {
+		got[vm.Name] = vm.Kind
+	}
+	want := map[string]string{"web-a": "nginx", "web-b": "apache", "vm1": ""}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("kind = %v, se esperaba %v", got, want)
+	}
+}
+
+// AC-10: eliminar desde 001 un servidor web pasa por el módulo web (delete_web) y borra sus filas.
+func TestAC10_DeleteVMDelegatesWebServer(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newWebEnv(t, runner)
+	ctx := context.Background()
+	env.registerWeb(t, "web-a", WebTypeNginx)
+
+	msg, err := env.prepare.DeleteVM(ctx, "web-a")
+
+	if err != nil || msg != "Servidor web web-a eliminado junto con su disco" {
+		t.Fatalf("DeleteVM = %q, %v", msg, err)
+	}
+	if op := env.lastOperation(t); op.Operation != "delete_web" {
+		t.Errorf("historial web = %+v, se esperaba delete_web", op)
+	}
+	if _, ok, _ := env.web.Get(ctx, "web-a"); ok {
+		t.Error("web-a debía salir de web_servers")
 	}
 }

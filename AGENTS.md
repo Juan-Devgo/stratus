@@ -4,6 +4,7 @@
 - All SDD files live in `docs/`.
 - Hierarchy: `docs/constitution.md` > `docs/specs/###-name/spec.md` > `plan.md` > `tasks.md` > code. Each level must comply with the one above.
 - Read the constitution before planning or coding. It is not repeated here.
+- Commit after each implemented phase of `tasks.md` (tasks checked off, tests passing). One commit per phase, per the Commits convention.
 
 ## Stack
 - Monorepo: `stratus-srv/` (Go), `stratus-ui/` (React), `scripts/` (bash), `docs/`.

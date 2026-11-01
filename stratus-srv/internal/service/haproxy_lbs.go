@@ -31,7 +31,7 @@ func (s *HAProxyService) ListLBs(ctx context.Context) (lbs []LBView, listErr str
 	if err != nil {
 		return nil, "", err
 	}
-	states, listErr := queryVMStates(ctx, s.runner, s.logger)
+	states, listErr, _ := queryVMStates(ctx, s.runner, s.logger)
 
 	var missing []string
 	lbs = make([]LBView, 0, len(rows))

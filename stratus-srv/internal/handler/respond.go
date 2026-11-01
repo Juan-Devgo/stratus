@@ -62,6 +62,18 @@ var sentinelStatus = []struct {
 	{service.ErrHAProxyConfigInvalid, http.StatusInternalServerError, service.ErrHAProxyConfigInvalid.Error()},
 	{service.ErrHAProxyReloadFailed, http.StatusInternalServerError, service.ErrHAProxyReloadFailed.Error()},
 	{service.ErrJumpUpdateFailed, http.StatusInternalServerError, service.ErrJumpUpdateFailed.Error()},
+	// Módulos de servidores web y DNS (005).
+	{service.ErrApacheBaseDiskMissing, http.StatusConflict, service.ErrApacheBaseDiskMissing.Error()},
+	{service.ErrNginxBaseDiskMissing, http.StatusConflict, service.ErrNginxBaseDiskMissing.Error()},
+	{service.ErrDNSBaseDiskMissing, http.StatusConflict, service.ErrDNSBaseDiskMissing.Error()},
+	{service.ErrDNSExists, http.StatusConflict, service.ErrDNSExists.Error()},
+	{service.ErrNoDNSServer, http.StatusConflict, service.ErrNoDNSServer.Error()},
+	{service.ErrDNSConfigIncomplete, http.StatusConflict, service.ErrDNSConfigIncomplete.Error()},
+	{service.ErrDNSIPInUse, http.StatusConflict, service.ErrDNSIPInUse.Error()},
+	{service.ErrDNSOff, http.StatusConflict, service.ErrDNSOff.Error()},
+	{service.ErrRecordExists, http.StatusConflict, service.ErrRecordExists.Error()},
+	{service.ErrIndexMissing, http.StatusUnprocessableEntity, service.ErrIndexMissing.Error()},
+	{service.ErrZoneInvalid, http.StatusInternalServerError, service.ErrZoneInvalid.Error()},
 	{service.ErrTimeout, http.StatusGatewayTimeout, "La operación superó el tiempo límite de 15 minutos"},
 }
 
@@ -77,6 +89,17 @@ func writeError(w http.ResponseWriter, err error) {
 	var lbOff *service.LBOffError
 	if errors.As(err, &lbOff) {
 		writeJSON(w, http.StatusConflict, errorBody{lbOff.Message})
+		return
+	}
+	// Paquete protegido y resolvedores activos: el texto nombra el paquete o las VMs.
+	var blocked *service.PackageBlockedError
+	if errors.As(err, &blocked) {
+		writeJSON(w, http.StatusConflict, errorBody{blocked.Message})
+		return
+	}
+	var resolvers *service.ResolversSetError
+	if errors.As(err, &resolvers) {
+		writeJSON(w, http.StatusConflict, errorBody{resolvers.Error()})
 		return
 	}
 	if errors.Is(err, service.ErrInvalidInput) {

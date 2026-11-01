@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"net"
 	"strconv"
 	"strings"
 
@@ -49,7 +47,7 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 		}
 	}
 
-	states, listErr := queryVMStates(ctx, s.runner, s.logger)
+	states, listErr, _ := queryVMStates(ctx, s.runner, s.logger)
 
 	var missing []string
 	vms = make([]VMView, 0, len(rows))
@@ -80,60 +78,6 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 		listErr = "Estas VMs no aparecen en VirtualBox: " + strings.Join(missing, ", ")
 	}
 	return vms, listErr, nil
-}
-
-// queryVMStates ejecuta list-vms.sh y devuelve el estado y la IP de cada VM de VirtualBox. Si el
-// script falla, el mapa queda vacío y listErr explica el motivo (sin detalles internos).
-func queryVMStates(ctx context.Context, runner ScriptRunner, logger *log.Logger) (states map[string]vmStatus, listErr string) {
-	states = map[string]vmStatus{}
-	res, runErr := runner.Run(ctx, "prepare/list-vms.sh")
-	switch {
-	case runErr != nil:
-		listErr = "No se pudo consultar el estado de las VMs en VirtualBox"
-		logger.Printf("operación=list_vms error=%q", Redact(runErr.Error()))
-	case res.TimedOut:
-		listErr = "No se pudo consultar el estado de las VMs en VirtualBox: se superó el tiempo límite"
-		logger.Printf("operación=list_vms resultado=timeout")
-	case res.ExitCode != 0:
-		stderr := strings.TrimSpace(Redact(res.Stderr))
-		listErr = fmt.Sprintf("No se pudo consultar el estado de las VMs en VirtualBox (código %d): %s",
-			res.ExitCode, lastLine(stderr))
-		logger.Printf("operación=list_vms código=%d stderr=%q", res.ExitCode, stderr)
-	default:
-		states = parseVMStates(string(res.Stdout))
-	}
-	return states, listErr
-}
-
-// vmStatus es el estado y la IP que informa list-vms.sh para una VM.
-type vmStatus struct {
-	state string
-	ip    string
-}
-
-// parseVMStates lee las líneas "<nombre> <running|poweroff> <ipv4|->" de list-vms.sh. Los dos
-// últimos campos son el estado y la IP; lo anterior es el nombre (VirtualBox puede tener VMs con
-// espacios, que no coinciden con ninguna VM de la app). La IP solo se conserva si es una IPv4
-// válida. Las líneas con otro formato o estado se ignoran.
-func parseVMStates(stdout string) map[string]vmStatus {
-	states := map[string]vmStatus{}
-	for _, line := range strings.Split(stdout, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		n := len(fields)
-		state, rawIP := fields[n-2], fields[n-1]
-		if state != "running" && state != "poweroff" {
-			continue
-		}
-		ip := ""
-		if parsed := net.ParseIP(rawIP); parsed != nil && parsed.To4() != nil && !strings.Contains(rawIP, ":") {
-			ip = rawIP
-		}
-		states[strings.Join(fields[:n-2], " ")] = vmStatus{state: state, ip: ip}
-	}
-	return states
 }
 
 // CreateVM valida la entrada, registra el nombre en SQLite e invoca create-vm.sh con el disco
@@ -175,9 +119,10 @@ func (s *PrepareService) CreateVM(ctx context.Context, in CreateVMInput) (string
 	return fmt.Sprintf("VM %s creada y encendida", in.Name), nil
 }
 
-// StartResult es el resultado de encender una VM: el mensaje de éxito y, si la VM es un servidor o
-// un balanceador y no se pudieron actualizar las IPs del balanceador, una advertencia (REQ-14).
-type StartResult struct {
+// ActionResult es el resultado de una operación que termina bien pero puede dejar un paso
+// posterior pendiente: el mensaje de éxito y, si ese paso falló (actualizar las IPs del balanceador,
+// 004 REQ-14, o los registros DNS, 005 REQ-26), una advertencia.
+type ActionResult struct {
 	Message string `json:"message"`
 	Warning string `json:"warning,omitempty"`
 }
@@ -186,18 +131,18 @@ type StartResult struct {
 // refresca las IPs internas de ese balanceador (HAProxyService.Refresh): la IP de un servidor puede
 // haber cambiado con el nuevo arranque. Un fallo del refresco no es un fallo de encender la VM: se
 // devuelve como advertencia y queda en el historial de haproxy.
-func (s *PrepareService) StartVM(ctx context.Context, name string) (StartResult, error) {
+func (s *PrepareService) StartVM(ctx context.Context, name string) (ActionResult, error) {
 	if _, err := s.getVM(ctx, name); err != nil {
-		return StartResult{}, err
+		return ActionResult{}, err
 	}
 	if _, err := s.runOperation(ctx, "start_vm", name, "prepare/start-vm.sh", []string{name}, nil); err != nil {
-		return StartResult{}, err
+		return ActionResult{}, err
 	}
-	result := StartResult{Message: fmt.Sprintf("VM %s encendida", name)}
+	result := ActionResult{Message: fmt.Sprintf("VM %s encendida", name)}
 
 	lb, err := s.balancerOf(ctx, name)
 	if err != nil {
-		return StartResult{}, err
+		return ActionResult{}, err
 	}
 	if lb != "" {
 		if _, err := s.haproxy.Refresh(ctx, lb); err != nil {

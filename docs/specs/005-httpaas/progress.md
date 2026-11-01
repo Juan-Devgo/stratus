@@ -64,3 +64,10 @@
 - Files: `features/prepare/{types,api}.ts`, `VmSelector.tsx`, `VmActions.tsx`; `features/haproxy/{api.ts,AssignServerForm,ServerTable,LbActions}.tsx`; `features/services/StateWarning.tsx`; new `components/WarningAlert.tsx`; tests and every `Vm` fixture (`kind: ""`).
 - Decisions: `StartResult` renamed `ActionResult` (start, delete VM, delete LB, assign, remove). New shared `WarningAlert` (title "Advertencia", `whitespace-pre-line`) replaces the inline Alert of `VmActions`; Phases 12-13 reuse it. `KIND_LABELS` exported from `VmSelector.tsx`; an LB keeps " - Balanceador", other kinds add " - Servidor web (Nginx|Apache)" / " - Servidor DNS".
 - Notes: `StateWarning` `hint` defaults to "revise Estado y Logs" (003); web/dns pass "revise Estado". Each component clears its warning when a new action starts.
+
+## Phase 12: Web servers screen (US-1, US-2, US-3)
+- Files: new `features/web/{types,api,validation}.ts`, `CreateWebForm`, `UnitButtons`, `InstallPageDialog`, `WebTable` (+ tests), `routes/Web.tsx` (+ test); `App.tsx` route `/web`.
+- Decisions: `UnitButtons` takes `name`, `unit` (apache2|nginx|named, used in the StateWarning text), `busy`, `onAction`, `onStatus`, `onDone` and `children` (extra buttons in the same `role="group"` "Acciones de <vm>"), so Phase 13 reuses it with `dnsAction`/`dnsStatus`. A failed Estado shows a failure Alert; a good one only the panel.
+- Decisions: `InstallPageDialog({vm|null, onClose, onDone})` copies the 003 two-step redeploy dialog (file, then warning "Se reemplazará todo /var/www/html de <vm>"); multipart has only the `archive` part. `validatePageFile` reuses `validateArchive` with its own missing-file text.
+- Decisions: `WebTable` uses a data row plus a full-width actions row per server; each component owns its `useOperation`, and the screen's `reloading` flag is the shared `busy` (the backend locks reject overlaps anyway).
+- Notes: UI 247 tests pass; typecheck and build OK. Phase 13 needs a shadcn `Switch` (not installed yet).

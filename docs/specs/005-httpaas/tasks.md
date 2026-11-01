@@ -130,9 +130,9 @@
 - [x] T111 Implement the resolver routes in `stratus-srv/internal/handler/dns.go` (REQ-31, AC-42)
 
 ## Phase 10: Locks and history across modules (US-8, US-9)
-- [ ] T112 Write TestAC50_CrossModuleLocks in `stratus-srv/internal/service/dns_service_test.go` (REQ-34, AC-50)
-- [ ] T113 Write TestAC51_RecordPolicy and TestAC53_HistoryLimit in `stratus-srv/internal/service/web_service_test.go` and `stratus-srv/internal/service/dns_service_test.go` (REQ-35, REQ-36, AC-51, AC-53)
-- [ ] T114 Fix any lock or record policy gap found by T112 and T113 in `stratus-srv/internal/service/web_*.go` and `stratus-srv/internal/service/dns_*.go` (REQ-34, REQ-35, REQ-36, AC-50, AC-51, AC-53)
+- [x] T112 Write TestAC50_CrossModuleLocks in `stratus-srv/internal/service/dns_service_test.go` (REQ-34, AC-50)
+- [x] T113 Write TestAC51_RecordPolicy and TestAC53_HistoryLimit in `stratus-srv/internal/service/web_service_test.go` and `stratus-srv/internal/service/dns_service_test.go` (REQ-35, REQ-36, AC-51, AC-53)
+- [x] T114 Fix any lock or record policy gap found by T112 and T113 in `stratus-srv/internal/service/web_*.go` and `stratus-srv/internal/service/dns_*.go` (REQ-34, REQ-35, REQ-36, AC-50, AC-51, AC-53)
 
 ## Phase 11: Kinds and warnings in the 001 and 004 screens (US-5, US-6, US-8)
 - [ ] T115 Add `kind` to `Vm` and update the fixtures of the existing tests in `stratus-ui/src/features/prepare/types.ts` (REQ-6, REQ-17, AC-8)

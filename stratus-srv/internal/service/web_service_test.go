@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -164,5 +166,74 @@ func (e webEnv) assignToLB(t *testing.T, lb, vm string) {
 	if err := e.lbs.InsertServer(ctx, repository.LBServer{LB: lb, Name: "server1", VM: vm, Port: 80,
 		LastIP: "10.10.1.11", Enabled: true}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// AC-51, REQ-35: cada operación de web deja una fila; Estado y la lista solo cuando fallan.
+func TestAC51_WebRecordPolicy(t *testing.T) {
+	runner := &fakeRunner{results: map[string]RunResult{
+		"web/create-web.sh":   {Stdout: []byte("Servidor web web-a (Nginx) creado; IP 192.168.1.40\nip=192.168.1.40\n")},
+		"web/status-web.sh":   {Stdout: []byte("● nginx.service\n")},
+		"prepare/list-vms.sh": {Stdout: []byte("web-a running 192.168.1.40\n")},
+	}}
+	env := newWebEnv(t, runner)
+	ctx := context.Background()
+	if _, err := env.svc.CreateWeb(ctx, CreateWebInput{Name: "web-a", MemoryMB: 1024, CPUs: 1, Type: WebTypeNginx}); err != nil {
+		t.Fatalf("CreateWeb: %v", err)
+	}
+	steps := []func() error{
+		func() error { _, err := env.svc.InstallPage(ctx, "web-a", pageUpload("x")); return err },
+		func() error { _, err := env.svc.WebAction(ctx, "web-a", "start"); return err },
+		func() error { _, err := env.svc.WebAction(ctx, "web-a", "stop"); return err },
+		func() error { _, err := env.svc.WebAction(ctx, "web-a", "restart"); return err },
+	}
+	for i := 0; i < 20; i++ {
+		steps = append(steps, func() error { _, err := env.svc.WebStatus(ctx, "web-a"); return err })
+		steps = append(steps, func() error { _, _, err := env.svc.ListWebServers(ctx); return err })
+	}
+	for i, step := range steps {
+		if err := step(); err != nil {
+			t.Fatalf("paso %d: %v", i, err)
+		}
+	}
+	runner.results["web/status-web.sh"] = RunResult{ExitCode: 4}
+	if _, err := env.svc.WebStatus(ctx, "web-a"); err == nil {
+		t.Fatal("WebStatus fallido debía devolver error")
+	}
+	if _, err := env.svc.DeleteWeb(ctx, "web-a"); err != nil {
+		t.Fatalf("DeleteWeb: %v", err)
+	}
+
+	ops, err := env.svc.History(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]int{"create_web": 1, "install_page": 1, "start_web": 1, "stop_web": 1, "restart_web": 1,
+		"status_web": 1, "delete_web": 1}
+	if got := countOps(ops); !reflect.DeepEqual(got, want) {
+		t.Errorf("filas por operación = %v, se esperaba %v", got, want)
+	}
+}
+
+// AC-53, REQ-36: con 55 filas de web, History trae las 50 más recientes, la más nueva primero.
+func TestAC53_WebHistoryLimit(t *testing.T) {
+	env := newWebEnv(t, &fakeRunner{})
+	ctx := context.Background()
+	for i := 0; i < 55; i++ {
+		op := repository.Operation{Module: webModule, Operation: fmt.Sprintf("op%02d", i), VM: "web-a",
+			Command: "web/x.sh", Result: "ok"}
+		if err := env.history.Insert(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ops, err := env.svc.History(ctx)
+
+	if err != nil || len(ops) != 50 {
+		t.Fatalf("History = %d filas, %v; se esperaban 50", len(ops), err)
+	}
+	if ops[0].Operation != "op54" || ops[49].Operation != "op05" {
+		t.Errorf("primera = %s, última = %s; se esperaba op54 y op05", ops[0].Operation, ops[49].Operation)
 	}
 }

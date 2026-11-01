@@ -54,3 +54,8 @@
 - Decisions: bats run the captured program on a fake root (paths rewritten, PATH limited to basic tools plus an empty dhclient/dhcpcd), so the files it writes are checked without a VM.
 - Decisions: `SetResolver`/`UnsetResolver` need the DNS server and valid config, a registered VM that is not the DNS server ("El servidor DNS no puede ser su propio resolvedor"); `targetArgs` adds `--jump`; lock = target VM; exit 7/12 keep the generic 001/004 texts (no `mapDNSError`).
 - Notes: T109 passed at once: `AfterVMDeleted` (Phase 7) already clears the flag. Routes `PUT`/`DELETE /api/dns/resolvers/{vm}` reply `{message}`.
+
+## Phase 10: Locks and history across modules (US-8, US-9)
+- Files: `service/dns_service_test.go` (TestAC50_CrossModuleLocks, TestAC51_DNSRecordPolicy, TestAC53_DNSHistoryLimit, `countOps`), `service/web_service_test.go` (TestAC51_WebRecordPolicy, TestAC53_WebHistoryLimit).
+- Decisions: AC-51 and AC-53 tests are split per module (`_Web…`/`_DNS…`) because both files share the package. The policy tests also run 20 successful list reads (`ListWebServers`, `Overview`) to check `list_web`/`list_dns` stay out.
+- Notes: T114 needed no code change: every test passed on the first run (also with `-race`). No script changed, so bats were not rerun in this phase (0 failures at Phase 9).

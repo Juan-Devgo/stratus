@@ -173,7 +173,7 @@
 - [x] T146 Add the `web` and `dns` cards in `stratus-ui/src/features/home/modules.ts` (REQ-37, AC-54)
 
 ## Phase 14: Verification
-- [ ] T147 Document the Apache, Nginx and DNS base disks in `docs/guide-base-images.md` and the new variables and `arping` with `cap_net_raw` in `docs/guide-environment.md` (REQ-2, REQ-13, REQ-15, AC-22, AC-25)
-- [ ] T148 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/`, and fix every failure (REQ-34, REQ-39, AC-55, AC-56)
+- [x] T147 Document the Apache, Nginx and DNS base disks in `docs/guide-base-images.md` and the new variables and `arping` with `cap_net_raw` in `docs/guide-environment.md` (REQ-2, REQ-13, REQ-15, AC-22, AC-25)
+- [x] T148 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/`, and fix every failure (REQ-34, REQ-39, AC-55, AC-56)
 - [ ] T149 Run the real-host demo for web servers: AC-4, AC-10, AC-11, AC-15, AC-18, AC-45 and AC-46 (REQ-2, REQ-4, REQ-8, REQ-10, REQ-11, REQ-12, AC-4, AC-10, AC-11, AC-15, AC-18, AC-45, AC-46)
 - [ ] T150 Run the real-host demo for DNS: AC-19, AC-22, AC-26, AC-30, AC-32, AC-36, AC-42, AC-47, AC-48 and AC-49 (REQ-12, REQ-14, REQ-16, REQ-22, REQ-23, REQ-26, REQ-31, AC-19, AC-22, AC-26, AC-30, AC-32, AC-36, AC-42, AC-47, AC-48, AC-49)

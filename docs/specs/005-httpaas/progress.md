@@ -77,3 +77,9 @@
 - Decisions: `Dns.tsx` reads only `GET /api/dns` and the history (the overview already has every VM, so no `listVms`); it waits for the first read before choosing form or panel. Without a server the records card is hidden.
 - Decisions: `DnsServerPanel` reuses `UnitButtons` (unit `named`) with "Actualizar registros" and "Eliminar" as extra buttons; a successful delete also calls `toast.success` because the panel unmounts on reload. `RecordTable` has a checkbox only for VMs without record, sends them in table order, lists `results` as "<vm>: <message>" under `aria-label="Resultado por VM"`, and uses a controlled `Switch` "Usar como resolvedor en <vm>" (PUT on, DELETE off).
 - Notes: shadcn generated `switch.tsx` with `import { cn } from "cn"`, the same as the other ui files. UI 262 tests pass; typecheck and build OK.
+
+## Phase 14: Docs and checks (polish)
+- Files: `docs/guide-base-images.md` (five images; new sections 8 Apache/Nginx and 9 DNS with verification and exit codes), `docs/guide-environment.md` (`arping` + `cap_net_raw` prerequisite, the seven 005 variables, sections 2.3 and 2.4, checks).
+- Decisions: the new image sections are appended as 8 and 9 instead of renumbering, so the existing "Go to section 5" links stay valid. Web images start from the server image (they can be assigned to an LB); the DNS image from the common part.
+- Notes: T148 green: gofmt clean, golangci-lint 0 issues, `go test ./...` ok, bats 682 ok / 0 not ok, UI typecheck, 262 tests and build ok.
+- Notes: T149 (web demo) and T150 (DNS demo) are manual real-host demos and stay pending: they need VirtualBox, the three new base disks, `APP_DNS_*` and `arping` with `cap_net_raw` on the host.

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -206,6 +207,22 @@ func TestAC35_DNSOffMapsError(t *testing.T) {
 			t.Errorf("dns_records = %+v, se esperaba el de vm1", recs)
 		}
 	})
+	t.Run("actualizar", func(t *testing.T) {
+		env, runner := newRecordsEnv(t)
+		runner.results["dns/refresh-records.sh"] = RunResult{ExitCode: 7}
+		if err := env.dns.InsertRecords(context.Background(), []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"}}); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := env.svc.Refresh(context.Background())
+
+		if !errors.Is(err, ErrDNSOff) {
+			t.Errorf("err = %v, se esperaba ErrDNSOff", err)
+		}
+		if recs := env.records(t); len(recs) != 1 || recs[0].IP != "192.168.1.40" {
+			t.Errorf("dns_records = %+v, se esperaba vm1 sin cambios", recs)
+		}
+	})
 }
 
 // AC-41: una zona rechazada por named-checkzone (exit 10) es ErrZoneInvalid, SQLite no cambia y la
@@ -243,6 +260,26 @@ func TestAC41_ZoneInvalidMapsError(t *testing.T) {
 		}
 		if recs := env.records(t); len(recs) != 1 {
 			t.Errorf("dns_records = %+v, se esperaba el de vm1", recs)
+		}
+	})
+	t.Run("actualizar", func(t *testing.T) {
+		env, runner := newRecordsEnv(t)
+		runner.results["dns/refresh-records.sh"] = RunResult{ExitCode: 10, Stdout: []byte("vm1 192.168.1.45\n"),
+			Stderr: check + "\n"}
+		if err := env.dns.InsertRecords(context.Background(), []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"}}); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := env.svc.Refresh(context.Background())
+
+		if !errors.Is(err, ErrZoneInvalid) {
+			t.Errorf("err = %v, se esperaba ErrZoneInvalid", err)
+		}
+		if recs := env.records(t); len(recs) != 1 || recs[0].IP != "192.168.1.40" {
+			t.Errorf("dns_records = %+v, se esperaba vm1 sin cambios", recs)
+		}
+		if op := env.lastDNSOperation(t); !strings.Contains(op.Stderr, check) {
+			t.Errorf("stderr del historial = %q", op.Stderr)
 		}
 	})
 }
@@ -334,5 +371,45 @@ func TestAC6_AddRecordsForHook(t *testing.T) {
 	}
 	if op := env.lastDNSOperation(t); op.Operation != "add_records" || op.Result != "error" {
 		t.Errorf("historial = %+v, se esperaba add_records fallido", op)
+	}
+}
+
+// AC-39, REQ-27: Refresh pasa todas las VMs con registro como espera y guarda las IPs impresas;
+// con reloaded=no informa "Registros sin cambios".
+func TestAC39_RefreshStoresPrintedIPs(t *testing.T) {
+	cases := []struct {
+		name, stdout, msg string
+	}{
+		{"recargada", "lb1 192.168.1.41\nvm1 192.168.1.45\nreloaded=yes\n", "Registros actualizados"},
+		{"sin cambios", "lb1 192.168.1.41\nvm1 192.168.1.45\nreloaded=no\n", "Registros sin cambios"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, runner := newRecordsEnv(t)
+			runner.results["dns/refresh-records.sh"] = RunResult{Stdout: []byte(tc.stdout)}
+			ctx := context.Background()
+			if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"},
+				{VM: "lb1", IP: "192.168.1.41"}}); err != nil {
+				t.Fatal(err)
+			}
+
+			msg, err := env.svc.Refresh(ctx)
+
+			if err != nil || msg != tc.msg {
+				t.Fatalf("Refresh = %q, %v; se esperaba %q", msg, err, tc.msg)
+			}
+			calls := runner.callsTo("dns/refresh-records.sh")
+			want := []string{"dns1", "stratus.lan", "192.168.1.53", "lb1,vm1", "lb1,192.168.1.41", "vm1,192.168.1.40"}
+			if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+				t.Errorf("llamadas = %+v, se esperaba %v", calls, want)
+			}
+			want2 := []repository.DNSRecord{{VM: "lb1", IP: "192.168.1.41"}, {VM: "vm1", IP: "192.168.1.45"}}
+			if recs := env.records(t); !reflect.DeepEqual(recs, want2) {
+				t.Errorf("dns_records = %+v, se esperaba %+v", recs, want2)
+			}
+			if op := env.lastDNSOperation(t); op.Operation != "refresh_records" || op.VM != "dns1" || op.Result != "ok" {
+				t.Errorf("historial = %+v", op)
+			}
+		})
 	}
 }

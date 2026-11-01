@@ -17,6 +17,19 @@ type RecordResult struct {
 	Message string `json:"message"`
 }
 
+// refreshWarning es la advertencia de REQ-26 cuando la operación terminó bien pero no su refresco.
+func refreshWarning(vm string) string {
+	return fmt.Sprintf("Operación completada; no se pudo actualizar el registro DNS de %s, use Actualizar registros", vm)
+}
+
+// joinWarnings une dos advertencias con "\n" en el único campo warning de la respuesta.
+func joinWarnings(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + "\n" + b
+}
+
 // deleteRecordWarning es la advertencia de REQ-24 cuando la VM se eliminó pero su registro no.
 const deleteRecordWarning = "VM eliminada; no se pudo quitar su registro DNS, use Actualizar registros"
 
@@ -140,6 +153,107 @@ func (s *DNSService) applyRemove(ctx context.Context, dns, vm string, onSuccess 
 	args := append([]string{dns, s.cfg.Domain, s.cfg.Address(), vm}, recordSpecs(remaining)...)
 	_, err = s.ops.run(ctx, "remove_record", dns, "dns/remove-record.sh", args, true, onSuccess)
 	return mapDNSError(err)
+}
+
+// Refresh es el botón "Actualizar registros" (REQ-27): espera a todas las VMs con registro y
+// guarda las IPs que imprime refresh-records.sh. Si la zona no cambió informa "Registros sin cambios".
+func (s *DNSService) Refresh(ctx context.Context) (string, error) {
+	dns, err := s.recordsServer(ctx)
+	if err != nil {
+		return "", err
+	}
+	reloaded, err := s.refresh(ctx, dns, "")
+	if err != nil {
+		return "", err
+	}
+	if !reloaded {
+		return "Registros sin cambios", nil
+	}
+	return "Registros actualizados", nil
+}
+
+// RefreshVM es el hook de iniciar (001), asignar y quitar (004) una VM (REQ-26): sin servidor DNS o
+// sin registro de la VM no hace nada; si no, espera solo a esa VM. Cualquier error lo convierte el
+// llamador en advertencia; un rechazo antes del script queda como fila fallida.
+func (s *DNSService) RefreshVM(ctx context.Context, vm string) error {
+	dns, ok, err := s.dnsRepo.Server(ctx)
+	if err != nil || !ok || vm == dns {
+		return err
+	}
+	if _, has, err := s.dnsRepo.Record(ctx, vm); err != nil || !has {
+		return err
+	}
+	return s.refreshHook(ctx, dns, vm)
+}
+
+// RefreshAll es el hook de iniciar el servidor DNS (REQ-27): espera a todas las VMs con registro.
+func (s *DNSService) RefreshAll(ctx context.Context) error {
+	dns, ok, err := s.dnsRepo.Server(ctx)
+	if err != nil || !ok {
+		return err
+	}
+	return s.refreshHook(ctx, dns, "")
+}
+
+// refreshHook ejecuta el refresco de un hook y guarda como fila fallida un rechazo previo al script.
+func (s *DNSService) refreshHook(ctx context.Context, dns, wait string) error {
+	err := ValidateDNSConfig(s.cfg)
+	if err == nil {
+		_, err = s.refresh(ctx, dns, wait)
+	}
+	if errors.Is(err, ErrOperationInProgress) || errors.Is(err, ErrDNSConfigIncomplete) {
+		args := []string{"-"}
+		if wait != "" {
+			args = []string{wait}
+		}
+		s.recordRejected(ctx, "refresh_records", dns, "dns/refresh-records.sh", args, err)
+	}
+	return err
+}
+
+// refresh ejecuta refresh-records.sh con el bloqueo del servidor DNS y todos los registros
+// guardados. wait es la VM que se espera; vacío espera a todas las VMs con registro. Si termina bien
+// guarda las IPs impresas y devuelve si la zona se recargó.
+func (s *DNSService) refresh(ctx context.Context, dns, wait string) (bool, error) {
+	recs, err := s.dnsRepo.Records(ctx)
+	if err != nil {
+		return false, err
+	}
+	if wait == "" {
+		names := make([]string, len(recs))
+		for i, rec := range recs {
+			names[i] = rec.VM
+		}
+		wait = strings.Join(names, ",")
+	}
+	if wait == "" {
+		wait = "-"
+	}
+	args := append([]string{dns, s.cfg.Domain, s.cfg.Address(), wait}, recordSpecs(recs)...)
+	reloaded := false
+	save := func(ctx context.Context, res RunResult) error {
+		var printed []repository.DNSRecord
+		printed, reloaded = parseRecordRefresh(res.Stdout)
+		return s.dnsRepo.UpdateRecordIPs(ctx, printed)
+	}
+	_, err = s.ops.runLocked(ctx, "refresh_records", dns, []string{dns}, "dns/refresh-records.sh", args, true, save)
+	return reloaded, mapDNSError(err)
+}
+
+// parseRecordRefresh lee la salida de refresh-records.sh: "<vm> <ip>" por registro y la línea
+// "reloaded=yes|no".
+func parseRecordRefresh(stdout []byte) (recs []repository.DNSRecord, reloaded bool) {
+	for line := range strings.Lines(string(stdout)) {
+		line = strings.TrimSpace(line)
+		if value, ok := strings.CutPrefix(line, "reloaded="); ok {
+			reloaded = value == "yes"
+			continue
+		}
+		if vm, ip, ok := strings.Cut(line, " "); ok && vm != "" && ip != "" {
+			recs = append(recs, repository.DNSRecord{VM: vm, IP: ip})
+		}
+	}
+	return recs, reloaded
 }
 
 // recordsServer devuelve el servidor DNS para una operación de registros: sin servidor es

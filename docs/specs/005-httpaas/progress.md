@@ -40,3 +40,10 @@
 - Decisions: `CreateWeb` split into `createWeb` (holds the create lock) + DNS hook after unlock (`AddRecordsFor`); failure or missing `ip=` with a DNS server → warning. `AfterVMDeleted` clears the resolver, deletes the row first, then runs `remove-record.sh` (nil hook); failure → REQ-24 warning, next refresh renders from SQLite.
 - Decisions: hook rejections before the script (lock taken, config invalid) are saved by `recordRejected` as failed history rows (exit -1).
 - Notes: `NewHAProxyService(..., locks, dns *DNSService, logger)`; `main.go` builds DNSService before HAProxy. `DeleteVM` and `DeleteLB` return `ActionResult` (`{message, warning?}`).
+
+## Phase 8: Follow DHCP changes (US-6)
+- Files: `scripts/dns/refresh-records.{sh,bats}`; `service/dns_records.go` (`Refresh`, `RefreshVM`, `RefreshAll`, `parseRecordRefresh`, `refreshWarning`, `joinWarnings`), `prepare_vms.go`, `haproxy_servers.go` (+ tests); `handler/{dns,haproxy}.go` (+ test).
+- Decisions: `refresh-records.sh` exits 7 at once if the DNS server is not `running` (no ssh, no polls); otherwise `wait_ips <dns> <running wait VMs>` shares one 60×2 s window. Wait VMs without a record are ignored. Output keeps the received record order.
+- Decisions: `RefreshVM` is a no-op without DNS server, without record, or for the DNS server itself; `RefreshAll` waits for every record VM (`-` if none). Hook rejections (lock, config) go to `recordRejected` like Phase 7. `Refresh` message: "Registros actualizados" / "Registros sin cambios".
+- Decisions: `AssignServer`/`RemoveServer` split into private `assignServer`/`removeServer` + `afterServerChange` (hook after unlock), returning `ActionResult`; handlers write `{message, warning?}`.
+- Notes: the REQ-26 warning names the started/assigned VM, also for the DNS server start; joined to the 004 warning with `\n`. Test helper `fakeRunner.scriptOrder()` lives in `prepare_vms_test.go`.

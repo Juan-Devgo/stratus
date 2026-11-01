@@ -152,6 +152,20 @@ func (s *PrepareService) StartVM(ctx context.Context, name string) (ActionResult
 			result.Warning = fmt.Sprintf("VM iniciada; no se pudieron actualizar las IPs del balanceador %s, use Actualizar IPs", lb)
 		}
 	}
+
+	// REQ-26, REQ-27: el servidor DNS actualiza todos los registros; otra VM, solo el suyo.
+	isDNS, err := s.dns.IsDNSServer(ctx, name)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	refresh := s.dns.RefreshVM
+	if isDNS {
+		refresh = func(ctx context.Context, _ string) error { return s.dns.RefreshAll(ctx) }
+	}
+	if err := refresh(ctx, name); err != nil {
+		s.logger.Printf("operación=start_vm vm=%s no se pudo actualizar el registro DNS: %v", name, err)
+		result.Warning = joinWarnings(result.Warning, refreshWarning(name))
+	}
 	return result, nil
 }
 

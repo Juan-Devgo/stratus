@@ -215,3 +215,26 @@ func TestAC30_DNSRecordRoutes(t *testing.T) {
 		t.Errorf("quitar: status = %d, body = %v", status, body)
 	}
 }
+
+// AC-39: POST /api/dns/records/refresh responde 200 con el mensaje y deja una fila refresh_records.
+func TestAC39_RefreshRoute(t *testing.T) {
+	runner := &fakeRunner{results: map[string]service.RunResult{
+		"dns/refresh-records.sh": {Stdout: []byte("reloaded=no\n")},
+	}}
+	ts := newTestServerWithLBs(t, runner)
+	ts.registerDNSServer(t, "dns1")
+
+	status, body := do(t, http.MethodPost, ts.URL+"/api/dns/records/refresh", "")
+
+	if status != http.StatusOK || body["message"] != "Registros sin cambios" {
+		t.Fatalf("status = %d, body = %v", status, body)
+	}
+	_, hist := do(t, http.MethodGet, ts.URL+"/api/dns/history", "")
+	ops, _ := hist["operations"].([]any)
+	if len(ops) != 1 {
+		t.Fatalf("operations = %v, se esperaba una fila", hist["operations"])
+	}
+	if op, _ := ops[0].(map[string]any); op["operation"] != "refresh_records" {
+		t.Errorf("operation = %v, se esperaba refresh_records", op["operation"])
+	}
+}

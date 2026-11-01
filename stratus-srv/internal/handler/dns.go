@@ -82,6 +82,16 @@ func RegisterDNS(mux *http.ServeMux, svc *service.DNSService) {
 		}{msg, results})
 	})
 
+	// Actualiza las IPs de todos los registros y recarga la zona solo si cambió (REQ-27).
+	mux.HandleFunc("POST /api/dns/records/refresh", func(w http.ResponseWriter, r *http.Request) {
+		msg, err := svc.Refresh(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
 	mux.HandleFunc("DELETE /api/dns/records/{vm}", func(w http.ResponseWriter, r *http.Request) {
 		msg, err := svc.RemoveRecord(r.Context(), r.PathValue("vm"))
 		if err != nil {

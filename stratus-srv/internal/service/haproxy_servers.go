@@ -43,8 +43,18 @@ func (s *HAProxyService) ListServers(ctx context.Context, lb string) ([]ServerVi
 // un balanceador, ni servidor de ningún balanceador, ni el servidor DNS (ErrVMNotAssignable, 005
 // REQ-19) y que el balanceador tenga
 // menos de 10 servidores (ErrLBFull). Toma el bloqueo del balanceador y de la VM a la vez (REQ-21).
+// Liberados los bloqueos, actualiza el registro DNS de la VM (005 REQ-26).
 // Si el script termina bien, guarda la fila con la IP que imprime ("ip=<ip>") antes de soltarlos.
-func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port int) (string, error) {
+func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port int) (ActionResult, error) {
+	msg, err := s.assignServer(ctx, lb, vm, port)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	return s.afterServerChange(ctx, vm, msg), nil
+}
+
+// assignServer valida y ejecuta assign-server.sh con los bloqueos del balanceador y de la VM.
+func (s *HAProxyService) assignServer(ctx context.Context, lb, vm string, port int) (string, error) {
 	if err := ValidatePort(port); err != nil {
 		return "", err
 	}
@@ -107,8 +117,29 @@ func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port i
 
 // RemoveServer quita la VM del balanceador con remove-server.sh (REQ-11). La VM debe ser servidor de
 // ese balanceador. Pasa al script los servidores que quedan; si termina bien, borra la fila. Con el
-// balanceador apagado el script sale con 12 y la fila se conserva.
-func (s *HAProxyService) RemoveServer(ctx context.Context, lb, vm string) (string, error) {
+// balanceador apagado el script sale con 12 y la fila se conserva. Liberados los bloqueos, actualiza
+// el registro DNS de la VM (005 REQ-26).
+func (s *HAProxyService) RemoveServer(ctx context.Context, lb, vm string) (ActionResult, error) {
+	msg, err := s.removeServer(ctx, lb, vm)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	return s.afterServerChange(ctx, vm, msg), nil
+}
+
+// afterServerChange es el hook de REQ-26 tras asignar o quitar: con los bloqueos ya liberados
+// actualiza el registro DNS de la VM; si falla, la operación sigue siendo un éxito con advertencia.
+func (s *HAProxyService) afterServerChange(ctx context.Context, vm, msg string) ActionResult {
+	res := ActionResult{Message: msg}
+	if err := s.dns.RefreshVM(ctx, vm); err != nil {
+		s.logger.Printf("vm=%s no se pudo actualizar el registro DNS: %v", vm, err)
+		res.Warning = refreshWarning(vm)
+	}
+	return res
+}
+
+// removeServer valida y ejecuta remove-server.sh con los bloqueos del balanceador y de la VM.
+func (s *HAProxyService) removeServer(ctx context.Context, lb, vm string) (string, error) {
 	lbRow, err := s.getLB(ctx, lb)
 	if err != nil {
 		return "", err

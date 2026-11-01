@@ -32,11 +32,11 @@ func TestAC13_AssignServerArgsAndRow(t *testing.T) {
 	env, runner := newAssignEnv(t)
 	ctx := context.Background()
 
-	msg, err := env.svc.AssignServer(ctx, "lb1", "web-a", 80)
+	res, err := env.svc.AssignServer(ctx, "lb1", "web-a", 80)
 	if err != nil {
 		t.Fatalf("AssignServer: %v", err)
 	}
-	if msg != "Servidor server1 (web-a) asignado a lb1" {
+	if msg := res.Message; msg != "Servidor server1 (web-a) asignado a lb1" {
 		t.Errorf("mensaje = %q", msg)
 	}
 	calls := runner.callsTo("haproxy/assign-server.sh")
@@ -255,11 +255,11 @@ func TestAC18_RemoveServerDeletesRow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg, err := env.svc.RemoveServer(ctx, "lb1", "web-a")
+	res, err := env.svc.RemoveServer(ctx, "lb1", "web-a")
 	if err != nil {
 		t.Fatalf("RemoveServer: %v", err)
 	}
-	if msg != "Servidor web-a quitado de lb1" {
+	if msg := res.Message; msg != "Servidor web-a quitado de lb1" {
 		t.Errorf("mensaje = %q", msg)
 	}
 	want := []string{"lb1", "web-a", "80", testBridge, "server1,web-b,8080,10.10.1.12,on"}
@@ -418,5 +418,53 @@ func TestAC28_DNSServerRulesAssign(t *testing.T) {
 	}
 	if _, assigned, _ := env.lbs.ServerByVM(ctx, "dns1"); assigned {
 		t.Error("dns1 no debía quedar asignado")
+	}
+}
+
+// AC-37, REQ-26: asignar y quitar una VM con registro ejecutan, después del script de haproxy,
+// refresh-records.sh esperando solo a esa VM; si el refresco falla, la operación termina bien con la
+// advertencia de REQ-26 y una fila refresh_records fallida.
+func TestAC37_AssignAndRemoveRefreshRecord(t *testing.T) {
+	const warning = "Operación completada; no se pudo actualizar el registro DNS de web-a, use Actualizar registros"
+	env, runner := newAssignEnv(t)
+	ctx := context.Background()
+	env.register(t, "dns1")
+	if err := env.dns.InsertServer(ctx, "dns1", []repository.DNSRecord{{VM: "web-a", IP: "192.168.1.40"}}); err != nil {
+		t.Fatal(err)
+	}
+	runner.results["dns/refresh-records.sh"] = RunResult{Stdout: []byte("web-a 10.10.1.11\nreloaded=yes\n")}
+
+	res, err := env.svc.AssignServer(ctx, "lb1", "web-a", 80)
+
+	if err != nil || res.Message != "Servidor server1 (web-a) asignado a lb1" || res.Warning != "" {
+		t.Fatalf("AssignServer = %+v, %v", res, err)
+	}
+	want := []string{"dns1", testDomain, "192.168.1.53", "web-a", "web-a,192.168.1.40"}
+	if calls := runner.callsTo("dns/refresh-records.sh"); len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+		t.Errorf("refresh-records.sh = %+v, se esperaba %v", calls, want)
+	}
+	if order := runner.scriptOrder(); !reflect.DeepEqual(order, []string{"haproxy/assign-server.sh", "dns/refresh-records.sh"}) {
+		t.Errorf("scripts = %v", order)
+	}
+	if rec, _, _ := env.dns.Record(ctx, "web-a"); rec.IP != "10.10.1.11" {
+		t.Errorf("IP del registro = %q, se esperaba la interna 10.10.1.11", rec.IP)
+	}
+
+	runner.results["dns/refresh-records.sh"] = RunResult{ExitCode: 7}
+
+	res, err = env.svc.RemoveServer(ctx, "lb1", "web-a")
+
+	if err != nil || res.Message != "Servidor web-a quitado de lb1" || res.Warning != warning {
+		t.Fatalf("RemoveServer = %+v, %v", res, err)
+	}
+	if n := len(runner.callsTo("dns/refresh-records.sh")); n != 2 {
+		t.Errorf("refresh-records.sh se llamó %d veces, se esperaba 2", n)
+	}
+	if _, assigned, _ := env.lbs.ServerByVM(ctx, "web-a"); assigned {
+		t.Error("web-a debía quedar fuera del balanceador")
+	}
+	ops, _ := env.history.ListRecent(ctx, dnsModule, 50)
+	if len(ops) == 0 || ops[0].Operation != "refresh_records" || ops[0].Result != "error" {
+		t.Errorf("historial dns = %+v, se esperaba refresh_records fallido", ops)
 	}
 }

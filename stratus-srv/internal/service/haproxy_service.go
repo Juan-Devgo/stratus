@@ -38,15 +38,16 @@ type HAProxyService struct {
 	dnsRepo *repository.DNSRepository // el servidor DNS no se puede asignar (005 REQ-19)
 	history *repository.HistoryRepository
 	locks   *VMLocks
+	dns     *DNSService // registros DNS de los balanceadores eliminados (005 REQ-24)
 	logger  *log.Logger
 	ops     *operationRunner // bloqueos, historial y log compartidos con los demás módulos
 }
 
 func NewHAProxyService(cfg HAProxyConfig, runner ScriptRunner, vms *repository.VMRepository,
 	lbs *repository.LBRepository, dnsRepo *repository.DNSRepository, history *repository.HistoryRepository,
-	locks *VMLocks, logger *log.Logger) *HAProxyService {
+	locks *VMLocks, dns *DNSService, logger *log.Logger) *HAProxyService {
 	return &HAProxyService{cfg: cfg, runner: runner, vms: vms, lbs: lbs, dnsRepo: dnsRepo, history: history, locks: locks,
-		logger: logger, ops: newOperationRunner(haproxyModule, runner, history, locks, logger)}
+		dns: dns, logger: logger, ops: newOperationRunner(haproxyModule, runner, history, locks, logger)}
 }
 
 // History devuelve las últimas 50 operaciones del módulo, la más reciente primero (REQ-24).

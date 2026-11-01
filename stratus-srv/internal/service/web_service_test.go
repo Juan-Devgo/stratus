@@ -59,7 +59,7 @@ func newWebEnv(t *testing.T, runner *fakeRunner) webEnv {
 	env.svc = NewWebService(testWebConfig(), runner, env.vms, env.lbs, env.web, env.dns, env.history,
 		env.locks, env.dnsSvc, logger)
 	env.haproxy = NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
-		runner, env.vms, env.lbs, env.dns, env.history, env.locks, logger)
+		runner, env.vms, env.lbs, env.dns, env.history, env.locks, env.dnsSvc, logger)
 	env.prepare = NewPrepareService(Config{BaseDisk: testBaseDisk, BridgeAdapter: testBridge, KeyTTL: 10 * time.Minute},
 		runner, env.vms, env.lbs, env.history, env.locks, env.haproxy, env.svc, env.dnsSvc, logger)
 	return env

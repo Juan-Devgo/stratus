@@ -172,3 +172,46 @@ func TestAC53_DNSHistoryRoute(t *testing.T) {
 		t.Errorf("operation = %v, se esperaba delete_dns", op["operation"])
 	}
 }
+
+// AC-30, AC-33: POST /api/dns/records responde 200 con el resultado de cada VM; si no se agregó
+// ninguna, 409 con el motivo. DELETE /api/dns/records/{vm} quita el registro.
+func TestAC30_DNSRecordRoutes(t *testing.T) {
+	runner := &fakeRunner{results: map[string]service.RunResult{
+		"prepare/list-vms.sh": {Stdout: []byte("dns1 running 192.168.1.53\nvm1 running 192.168.1.40\nvm2 poweroff -\n")},
+	}}
+	ts := newTestServerWithLBs(t, runner)
+	ts.registerDNSServer(t, "dns1")
+	for _, vm := range []string{"vm1", "vm2"} {
+		if _, err := ts.vms.Insert(context.Background(), vm); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	status, body := do(t, http.MethodPost, ts.URL+"/api/dns/records", `{"vms":["vm1","vm2"]}`)
+
+	if status != http.StatusOK || body["message"] != "Registros agregados: vm1" {
+		t.Fatalf("agregar: status = %d, body = %v", status, body)
+	}
+	results, _ := body["results"].([]any)
+	if len(results) != 2 {
+		t.Fatalf("results = %v, se esperaban 2", body["results"])
+	}
+	for i, want := range []map[string]any{{"vm": "vm1", "ok": true}, {"vm": "vm2", "ok": false}} {
+		got, _ := results[i].(map[string]any)
+		if got["vm"] != want["vm"] || got["ok"] != want["ok"] || got["message"] == "" {
+			t.Errorf("results[%d] = %v, se esperaba %v con mensaje", i, got, want)
+		}
+	}
+
+	status, body = do(t, http.MethodPost, ts.URL+"/api/dns/records", `{"vms":["vm1"]}`)
+
+	if status != http.StatusConflict || body["error"] == nil {
+		t.Errorf("ninguna agregada: status = %d, body = %v; se esperaba 409", status, body)
+	}
+
+	status, body = do(t, http.MethodDelete, ts.URL+"/api/dns/records/vm1", "")
+
+	if status != http.StatusOK || body["message"] != "Registro de vm1 quitado" {
+		t.Errorf("quitar: status = %d, body = %v", status, body)
+	}
+}

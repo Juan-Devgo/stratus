@@ -79,12 +79,12 @@ func newTestServerWithLBs(t *testing.T, runner service.ScriptRunner) testServer 
 	locks := &service.VMLocks{}
 	logger := log.New(io.Discard, "", 0)
 	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
-	haproxy := service.NewHAProxyService(service.HAProxyConfig{BaseDisk: "/vms/haproxy-base.vdi", BridgeAdapter: "eth0"},
-		runner, vms, lbs, dnsRepo, history, locks, logger)
-	cfg := service.Config{BaseDisk: "/vms/base.vdi", BridgeAdapter: "eth0", KeyTTL: 10 * time.Minute}
 	dns := service.NewDNSService(service.DNSConfig{BaseDisk: "/vms/dns-base.vdi", BridgeAdapter: "eth0",
 		IP: "192.168.1.53/24", Gateway: "192.168.1.1", Domain: "stratus.lan", Forwarders: "1.1.1.1,8.8.8.8"},
 		runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
+	haproxy := service.NewHAProxyService(service.HAProxyConfig{BaseDisk: "/vms/haproxy-base.vdi", BridgeAdapter: "eth0"},
+		runner, vms, lbs, dnsRepo, history, locks, dns, logger)
+	cfg := service.Config{BaseDisk: "/vms/base.vdi", BridgeAdapter: "eth0", KeyTTL: 10 * time.Minute}
 	web := service.NewWebService(service.WebConfig{ApacheBaseDisk: "/vms/apache-base.vdi",
 		NginxBaseDisk: "/vms/nginx-base.vdi", BridgeAdapter: "eth0", Domain: "stratus.lan", MaxArchiveBytes: maxTestArchive},
 		runner, vms, lbs, webRepo, dnsRepo, history, locks, dns, logger)

@@ -63,15 +63,8 @@ func main() {
 	webRepo := repository.NewWebRepository(db)
 	dnsRepo := repository.NewDNSRepository(db)
 
-	// HAProxyService va antes que PrepareService: eliminar un balanceador desde 001 y refrescar sus
-	// IPs al encender una VM pasan por él.
-	haproxy := service.NewHAProxyService(service.HAProxyConfig{
-		BaseDisk:      cfg.HAProxyBaseDisk,
-		BridgeAdapter: cfg.BridgeAdapter,
-	}, runner, vms, lbs, dnsRepo, history, locks, logger)
-
-	// DNSService va antes que WebService y PrepareService: crear y eliminar servidores web y VMs
-	// mantiene sus registros, y el servidor DNS se elimina y protege desde 001.
+	// DNSService va primero: crear y eliminar servidores web, balanceadores y VMs mantiene sus
+	// registros, y el servidor DNS se elimina y protege desde 001 y 004.
 	dns := service.NewDNSService(service.DNSConfig{
 		BaseDisk:      cfg.DNSBaseDisk,
 		BridgeAdapter: cfg.BridgeAdapter,
@@ -80,6 +73,13 @@ func main() {
 		Domain:        cfg.DNSDomain,
 		Forwarders:    cfg.DNSForwarders,
 	}, runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
+
+	// HAProxyService va antes que PrepareService: eliminar un balanceador desde 001 y refrescar sus
+	// IPs al encender una VM pasan por él.
+	haproxy := service.NewHAProxyService(service.HAProxyConfig{
+		BaseDisk:      cfg.HAProxyBaseDisk,
+		BridgeAdapter: cfg.BridgeAdapter,
+	}, runner, vms, lbs, dnsRepo, history, locks, dns, logger)
 
 	// WebService también va antes que PrepareService: el tipo del selector, las reglas de paquetes y
 	// la eliminación de un servidor web desde 001 pasan por él.

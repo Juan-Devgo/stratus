@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# add-records.sh - Agrega registros A a la zona del servidor DNS (005). Recibe el conjunto completo de
+# registros después de agregar (los guardados más los nuevos), renderiza la zona entera, la comprueba
+# con named-checkzone y recarga bind9; una zona rechazada deja la anterior (REQ-28, REQ-29).
+#
+# Uso:
+#   add-records.sh <dns> <domain> <dns_ip> <record...>
+#
+# Argumentos:
+#   dns     nombre del servidor DNS, ^[a-z0-9][a-z0-9-]{0,31}$
+#   domain  zona: 1-4 etiquetas ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ unidas por puntos
+#   dns_ip  IPv4 del servidor DNS (su propio registro A)
+#   record  registro "<vm>,<ipv4>"; al menos uno, hasta 200, sin repetir VMs ni el servidor DNS
+#
+# Variables de entorno:
+#   APP_SSH_KEY_PATH  llave privada del backend
+#
+# Salida:
+#   stdout  "Registros aplicados" y, en la última línea, "reloaded=yes"
+#   stderr  diagnósticos (con la salida de named-checkzone si la zona es inválida)
+#
+# Códigos de salida:
+#   0   éxito
+#   2   argumentos inválidos o variables de entorno faltantes
+#   3   VM no encontrada en VirtualBox
+#   4   fallo de comunicación con la VM (SSH)
+#   5   falló un paso en la VM
+#   7   el servidor DNS no tiene dirección IP (está apagado)
+#   9   falló la recarga y también la restauración de la zona anterior
+#   10  zona inválida; se mantuvo la anterior
+#   11  falló la recarga; se restauró la zona anterior
+#   99  operación no implementada
+
+set -euo pipefail
+
+scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../prepare/lib/vm-exec.sh
+source "$scripts_dir/prepare/lib/vm-exec.sh"
+# shellcheck source=lib/dns-common.sh
+source "$scripts_dir/dns/lib/dns-common.sh"
+
+# == 1. Validar argumentos ==
+# 1.1 Exigir al menos 4 argumentos; si no, imprimir el uso en stderr y salir con 2.
+# 1.2 dns, domain, dns_ip y los registros contra sus listas permitidas, y APP_SSH_KEY_PATH
+#     definida; si no, salir con 2.
+# Ninguna validación fallida llama a VBoxManage ni a ssh.
+
+if (($# < 4)); then
+  fail 2 "Uso: add-records.sh <dns> <domain> <dns_ip> <record...>"
+fi
+dns="$1"
+domain="$2"
+dns_ip="$3"
+shift 3
+
+validate_vm_name "$dns" || exit 2
+validate_domain "$domain" || exit 2
+if [[ ! "$dns_ip" =~ $_IPV4_RE ]]; then
+  fail 2 "IP del servidor DNS inválida"
+fi
+validate_records "$dns" "$@" || exit 2
+if [[ -z "${APP_SSH_KEY_PATH:-}" ]]; then
+  fail 2 "Falta la variable de entorno APP_SSH_KEY_PATH"
+fi
+
+# == 2. Preparar la ejecución en la VM ==
+# 2.1 Comprobar que la VM exista con "VBoxManage showvminfo <dns>"; si no, salir con 3.
+
+if ! VBoxManage showvminfo "$dns" >/dev/null 2>&1; then
+  fail 3 "VM no encontrada en VirtualBox"
+fi
+
+# == 3. Aplicar la zona ==
+# 3.1 "render_zone <dns> <domain> <dns_ip> <record...> | apply_zone <dns> <domain>": sube la zona
+#     nueva, la comprueba, guarda la anterior y recarga; su código es el del script (7 sin IP).
+# 3.2 Imprimir "Registros aplicados" y la línea "reloaded=yes" de apply_zone.
+
+result="$(render_zone "$dns" "$domain" "$dns_ip" "$@" | apply_zone "$dns" "$domain")" || exit $?
+echo "Registros aplicados"
+echo "$result"

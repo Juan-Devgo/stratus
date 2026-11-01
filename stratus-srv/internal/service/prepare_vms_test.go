@@ -108,9 +108,9 @@ func newTestEnv(t *testing.T, runner ScriptRunner) testEnv {
 	locks := &VMLocks{}
 	logger := log.New(env.logs, "", 0)
 	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
-	haproxy := NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
-		runner, env.vms, env.lbs, dnsRepo, env.history, locks, logger)
 	dns := NewDNSService(DNSConfig{}, runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, locks, logger)
+	haproxy := NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
+		runner, env.vms, env.lbs, dnsRepo, env.history, locks, dns, logger)
 	web := NewWebService(WebConfig{}, runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, locks, dns, logger)
 	env.svc = NewPrepareService(cfg, runner, env.vms, env.lbs, env.history, locks, haproxy, web, dns, logger)
 	return env
@@ -129,8 +129,8 @@ func newPrepareForTest(t *testing.T, runner ScriptRunner, vms *repository.VMRepo
 	t.Cleanup(func() { db.Close() })
 	lbs := repository.NewLBRepository(db)
 	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
-	haproxy := NewHAProxyService(HAProxyConfig{}, runner, vms, lbs, dnsRepo, history, locks, logger)
 	dns := NewDNSService(DNSConfig{}, runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
+	haproxy := NewHAProxyService(HAProxyConfig{}, runner, vms, lbs, dnsRepo, history, locks, dns, logger)
 	web := NewWebService(WebConfig{}, runner, vms, lbs, webRepo, dnsRepo, history, locks, dns, logger)
 	return NewPrepareService(Config{KeyTTL: 1}, runner, vms, lbs, history, locks, haproxy, web, dns, logger)
 }
@@ -852,11 +852,11 @@ func TestAC43_DeleteVMOnLBUsesDeleteLB(t *testing.T) {
 	if err := env.lbs.DeleteServer(ctx, "lb1", "web-a"); err != nil {
 		t.Fatal(err)
 	}
-	msg, err := env.svc.DeleteVM(ctx, "lb1")
+	res, err := env.svc.DeleteVM(ctx, "lb1")
 	if err != nil {
 		t.Fatalf("DeleteVM sin servidores: %v", err)
 	}
-	if msg != "Balanceador lb1 eliminado junto con su red interna" {
+	if msg := res.Message; msg != "Balanceador lb1 eliminado junto con su red interna" {
 		t.Errorf("mensaje = %q", msg)
 	}
 	calls := runner.callsTo("haproxy/delete-lb.sh")
@@ -1021,10 +1021,10 @@ func TestAC10_DeleteVMDelegatesWebServer(t *testing.T) {
 	ctx := context.Background()
 	env.registerWeb(t, "web-a", WebTypeNginx)
 
-	msg, err := env.prepare.DeleteVM(ctx, "web-a")
+	res, err := env.prepare.DeleteVM(ctx, "web-a")
 
-	if err != nil || msg != "Servidor web web-a eliminado junto con su disco" {
-		t.Fatalf("DeleteVM = %q, %v", msg, err)
+	if err != nil || res.Message != "Servidor web web-a eliminado junto con su disco" {
+		t.Fatalf("DeleteVM = %+v, %v", res, err)
 	}
 	if op := env.lastOperation(t); op.Operation != "delete_web" {
 		t.Errorf("historial web = %+v, se esperaba delete_web", op)
@@ -1052,15 +1052,58 @@ func TestAC29_PrepareDeleteDelegatesDNS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg, err := env.prepare.DeleteVM(ctx, "dns1")
+	res, err := env.prepare.DeleteVM(ctx, "dns1")
 
-	if err != nil || msg != "Servidor DNS dns1 eliminado junto con su disco" {
-		t.Fatalf("DeleteVM = %q, %v", msg, err)
+	if err != nil || res.Message != "Servidor DNS dns1 eliminado junto con su disco" {
+		t.Fatalf("DeleteVM = %+v, %v", res, err)
 	}
 	if op := env.lastDNSOperation(t); op.Operation != "delete_dns" || op.Module != dnsModule {
 		t.Errorf("historial dns = %+v, se esperaba delete_dns", op)
 	}
 	if _, ok, _ := env.dns.Server(ctx); ok {
 		t.Error("dns_server debía quedar vacío")
+	}
+}
+
+// AC-34: eliminar desde 001 una VM con registro llama a delete-vm.sh y después a remove-record.sh sin
+// ella; con el servidor DNS apagado, la eliminación termina bien con la advertencia de REQ-24, una
+// fila remove_record fallida y el registro ya borrado.
+func TestAC34_DeleteVMRemovesRecord(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		removeRC int
+		warning  string
+	}{
+		{"DNS encendido", 0, ""},
+		{"DNS apagado", 7, "VM eliminada; no se pudo quitar su registro DNS, use Actualizar registros"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env, runner := newRecordsEnv(t)
+			runner.results["dns/remove-record.sh"] = RunResult{ExitCode: tt.removeRC}
+			ctx := context.Background()
+			if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"},
+				{VM: "vm2", IP: "192.168.1.42"}}); err != nil {
+				t.Fatal(err)
+			}
+
+			res, err := env.prepare.DeleteVM(ctx, "vm1")
+
+			if err != nil || res.Message != "VM vm1 eliminada junto con su disco" || res.Warning != tt.warning {
+				t.Fatalf("DeleteVM = %+v, %v", res, err)
+			}
+			calls := runner.callsTo("dns/remove-record.sh")
+			want := []string{"dns1", testDomain, "192.168.1.53", "vm1", "vm2,192.168.1.42"}
+			if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+				t.Errorf("remove-record.sh = %+v, se esperaba %v", calls, want)
+			}
+			if _, has, _ := env.dns.Record(ctx, "vm1"); has {
+				t.Error("el registro de vm1 debía borrarse")
+			}
+			if tt.removeRC != 0 {
+				if op := env.lastDNSOperation(t); op.Operation != "remove_record" || op.Result != "error" {
+					t.Errorf("historial dns = %+v, se esperaba remove_record fallido", op)
+				}
+			}
+		})
 	}
 }

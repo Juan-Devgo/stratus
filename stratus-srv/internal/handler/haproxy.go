@@ -34,12 +34,12 @@ func RegisterHAProxy(mux *http.ServeMux, svc *service.HAProxyService) {
 	})
 
 	mux.HandleFunc("DELETE /api/haproxy/lbs/{lb}", func(w http.ResponseWriter, r *http.Request) {
-		msg, err := svc.DeleteLB(r.Context(), r.PathValue("lb"))
+		res, err := svc.DeleteLB(r.Context(), r.PathValue("lb"))
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, messageBody{msg})
+		writeJSON(w, http.StatusOK, res)
 	})
 
 	mux.HandleFunc("GET /api/haproxy/lbs/{lb}/servers", func(w http.ResponseWriter, r *http.Request) {

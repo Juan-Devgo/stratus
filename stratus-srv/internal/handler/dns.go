@@ -62,6 +62,35 @@ func RegisterDNS(mux *http.ServeMux, svc *service.DNSService) {
 		}{output})
 	})
 
+	// Agrega los registros A de las VMs elegidas (REQ-23): 200 con el resultado de cada una o, si no
+	// se agregó ninguna, el error de la primera rechazada.
+	mux.HandleFunc("POST /api/dns/records", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			VMs []string `json:"vms"`
+		}
+		if !decodeJSON(w, r, &in) {
+			return
+		}
+		msg, results, err := svc.AddRecords(r.Context(), in.VMs)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Message string                 `json:"message"`
+			Results []service.RecordResult `json:"results"`
+		}{msg, results})
+	})
+
+	mux.HandleFunc("DELETE /api/dns/records/{vm}", func(w http.ResponseWriter, r *http.Request) {
+		msg, err := svc.RemoveRecord(r.Context(), r.PathValue("vm"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
 	// Últimas 50 operaciones del módulo, la más reciente primero (REQ-36).
 	mux.HandleFunc("GET /api/dns/history", historyHandler(svc.History))
 }

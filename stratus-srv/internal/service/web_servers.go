@@ -72,32 +72,60 @@ func (s *WebService) ListWebServers(ctx context.Context) ([]WebServerView, strin
 	return servers, listErr, nil
 }
 
-// CreateWeb valida la entrada con las reglas de 001 y el tipo, toma el bloqueo de creación (compartido
-// con create_vm y create_lb), registra el nombre y ejecuta create-web.sh con el disco base del tipo.
-// Si el script falla, el nombre se libera; si termina bien, guarda el servidor con su tipo.
+// createWebWarning es la advertencia de REQ-5 cuando el servidor web se creó pero no su registro DNS.
+const createWebWarning = "Servidor web creado; no se pudo registrar en DNS, agréguelo desde DNS"
+
+// CreateWeb crea el servidor web y, ya sueltos los bloqueos, agrega su registro DNS con la IP que
+// imprime create-web.sh si hay servidor DNS (REQ-5). Un fallo del registro no es un fallo de la
+// creación: se devuelve como advertencia y queda como fila fallida en el historial de dns.
 func (s *WebService) CreateWeb(ctx context.Context, in CreateWebInput) (ActionResult, error) {
-	if err := ValidateCreateVM(CreateVMInput{Name: in.Name, MemoryMB: in.MemoryMB, CPUs: in.CPUs}); err != nil {
+	stdout, err := s.createWeb(ctx, in)
+	if err != nil {
 		return ActionResult{}, err
 	}
+	res := ActionResult{Message: firstLine(stdout)}
+	if res.Message == "" {
+		res.Message = fmt.Sprintf("Servidor web %s creado", in.Name)
+	}
+	if ip, ok := parseIP(stdout); ok {
+		if err := s.dns.AddRecordsFor(ctx, in.Name, ip); err != nil {
+			s.logger.Printf("no se pudo registrar %s en DNS: %v", in.Name, err)
+			res.Warning = createWebWarning
+		}
+	} else if _, hasDNS, err := s.dnsRepo.Server(ctx); err != nil || hasDNS {
+		s.logger.Printf("no se pudo registrar %s en DNS: create-web.sh no informó su IP", in.Name)
+		res.Warning = createWebWarning
+	}
+	return res, nil
+}
+
+// createWeb valida la entrada con las reglas de 001 y el tipo, toma el bloqueo de creación (compartido
+// con create_vm y create_lb), registra el nombre y ejecuta create-web.sh con el disco base del tipo.
+// Si el script falla, el nombre se libera; si termina bien, guarda el servidor con su tipo y devuelve
+// el stdout del script.
+func (s *WebService) createWeb(ctx context.Context, in CreateWebInput) (string, error) {
+	if err := ValidateCreateVM(CreateVMInput{Name: in.Name, MemoryMB: in.MemoryMB, CPUs: in.CPUs}); err != nil {
+		return "", err
+	}
 	if err := ValidateWebType(in.Type); err != nil {
-		return ActionResult{}, err
+		return "", err
 	}
 	disk := s.cfg.NginxBaseDisk
 	if in.Type == WebTypeApache {
 		disk = s.cfg.ApacheBaseDisk
 	}
 	if disk == "" {
-		return ActionResult{}, baseDiskMissing(in.Type)
+		return "", baseDiskMissing(in.Type)
 	}
 	if !s.locks.TryLockCreate() {
-		return ActionResult{}, ErrCreateInProgress
+		return "", ErrCreateInProgress
 	}
 	defer s.locks.UnlockCreate()
 
 	if _, err := s.vms.Insert(ctx, in.Name); errors.Is(err, repository.ErrDuplicateVM) {
-		return ActionResult{}, fmt.Errorf("crear servidor web %s: %w", in.Name, ErrDuplicateVM)
+		return "", fmt.Errorf("crear servidor web %s: %w", in.Name, ErrDuplicateVM)
 	} else if err != nil {
-		return ActionResult{}, err
+		return "", err
 	}
 
 	args := []string{in.Name, strconv.Itoa(in.MemoryMB), strconv.Itoa(in.CPUs), in.Type, disk,
@@ -115,18 +143,15 @@ func (s *WebService) CreateWeb(ctx context.Context, in CreateWebInput) (ActionRe
 				s.logger.Printf("no se pudo liberar el nombre %s: %v", in.Name, delErr)
 			}
 		}
-		return ActionResult{}, mapWebError(in.Type, err)
+		return "", mapWebError(in.Type, err)
 	}
 
-	msg := firstLine(string(res.Stdout))
-	if msg == "" {
-		msg = fmt.Sprintf("Servidor web %s creado", in.Name)
-	}
-	return ActionResult{Message: msg}, nil
+	return string(res.Stdout), nil
 }
 
 // DeleteWeb elimina el servidor web con delete-vm.sh (VM y disco diferencial; el disco base no se
-// toca) y, si termina bien, borra sus filas de web_servers y de vms. Un servidor asignado a un
+// toca) y, si termina bien, borra sus filas de web_servers y de vms y después su registro DNS
+// (REQ-30); un fallo del registro es la advertencia de REQ-24. Un servidor asignado a un
 // balanceador se rechaza sin llamar al script (REQ-8).
 func (s *WebService) DeleteWeb(ctx context.Context, vm string) (ActionResult, error) {
 	if _, err := s.getWeb(ctx, vm); err != nil {
@@ -147,5 +172,6 @@ func (s *WebService) DeleteWeb(ctx context.Context, vm string) (ActionResult, er
 	if _, err := s.ops.run(ctx, "delete_web", vm, "prepare/delete-vm.sh", []string{vm}, true, deleteRows); err != nil {
 		return ActionResult{}, err
 	}
-	return ActionResult{Message: fmt.Sprintf("Servidor web %s eliminado junto con su disco", vm)}, nil
+	return ActionResult{Message: fmt.Sprintf("Servidor web %s eliminado junto con su disco", vm),
+		Warning: s.dns.AfterVMDeleted(ctx, vm)}, nil
 }

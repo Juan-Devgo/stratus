@@ -48,10 +48,10 @@ func newHAProxyEnv(t *testing.T, runner *fakeRunner) haproxyEnv {
 		logs:    &bytes.Buffer{},
 	}
 	logger := log.New(env.logs, "", 0)
-	env.svc = NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
-		runner, env.vms, env.lbs, env.dns, env.history, env.locks, logger)
 	webRepo, dnsRepo := repository.NewWebRepository(db), env.dns
 	dns := NewDNSService(testDNSConfig(), runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, env.locks, logger)
+	env.svc = NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
+		runner, env.vms, env.lbs, env.dns, env.history, env.locks, dns, logger)
 	web := NewWebService(testWebConfig(), runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, env.locks, dns, logger)
 	env.prepare = NewPrepareService(Config{BaseDisk: testBaseDisk, BridgeAdapter: testBridge, KeyTTL: 10 * time.Minute},
 		runner, env.vms, env.lbs, env.history, env.locks, env.svc, web, dns, logger)

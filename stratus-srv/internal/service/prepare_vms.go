@@ -189,52 +189,55 @@ func (s *PrepareService) StopVM(ctx context.Context, name string) (string, error
 // ErrVMIsServer; un balanceador con servidores, con ErrLBHasServers; y un balanceador sin
 // servidores se elimina con delete-lb.sh, que también quita su red interna. Un servidor web (005)
 // se elimina con WebService.DeleteWeb, que también borra su tipo, y el servidor DNS con
-// DNSService.DeleteDNS, que se niega mientras alguna VM lo use como resolvedor.
-func (s *PrepareService) DeleteVM(ctx context.Context, name string) (string, error) {
+// DNSService.DeleteDNS, que se niega mientras alguna VM lo use como resolvedor. Después se quita el
+// registro DNS de la VM eliminada; si falla, la eliminación termina bien con la advertencia de 005
+// REQ-24.
+func (s *PrepareService) DeleteVM(ctx context.Context, name string) (ActionResult, error) {
 	if _, err := s.getVM(ctx, name); err != nil {
-		return "", err
+		return ActionResult{}, err
 	}
 	if _, assigned, err := s.lbs.ServerByVM(ctx, name); err != nil {
-		return "", err
+		return ActionResult{}, err
 	} else if assigned {
-		return "", ErrVMIsServer
+		return ActionResult{}, ErrVMIsServer
 	}
 	if _, err := s.lbs.GetLB(ctx, name); err == nil {
-		msg, err := s.haproxy.DeleteLB(ctx, name)
+		res, err := s.haproxy.DeleteLB(ctx, name)
 		if err != nil {
-			return "", err
+			return ActionResult{}, err
 		}
 		s.keys.Discard(name)
-		return msg, nil
+		return res, nil
 	} else if !errors.Is(err, repository.ErrLBNotFound) {
-		return "", err
+		return ActionResult{}, err
 	}
 	if _, isWeb, err := s.web.webType(ctx, name); err != nil {
-		return "", err
+		return ActionResult{}, err
 	} else if isWeb {
 		res, err := s.web.DeleteWeb(ctx, name)
 		if err != nil {
-			return "", err
+			return ActionResult{}, err
 		}
 		s.keys.Discard(name)
-		return res.Message, nil
+		return res, nil
 	}
 	if isDNS, err := s.dns.IsDNSServer(ctx, name); err != nil {
-		return "", err
+		return ActionResult{}, err
 	} else if isDNS {
 		msg, err := s.dns.DeleteDNS(ctx)
 		if err != nil {
-			return "", err
+			return ActionResult{}, err
 		}
 		s.keys.Discard(name)
-		return msg, nil
+		return ActionResult{Message: msg}, nil
 	}
 	deleteRow := func(ctx context.Context) error {
 		s.keys.Discard(name)
 		return s.vms.Delete(ctx, name)
 	}
 	if _, err := s.runOperation(ctx, "delete_vm", name, "prepare/delete-vm.sh", []string{name}, deleteRow); err != nil {
-		return "", err
+		return ActionResult{}, err
 	}
-	return fmt.Sprintf("VM %s eliminada junto con su disco", name), nil
+	return ActionResult{Message: fmt.Sprintf("VM %s eliminada junto con su disco", name),
+		Warning: s.dns.AfterVMDeleted(ctx, name)}, nil
 }

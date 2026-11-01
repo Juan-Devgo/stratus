@@ -255,6 +255,28 @@ func TestAC10_DeleteWebRemovesRecord(t *testing.T) {
 			t.Error("web-a debía salir de web_servers")
 		}
 	})
+	t.Run("con registro DNS", func(t *testing.T) {
+		runner := &fakeRunner{}
+		env := newDNSEnv(t, runner)
+		ctx := context.Background()
+		env.registerWeb(t, "web-a", WebTypeNginx)
+		env.registerDNS(t, "dns1", repository.DNSRecord{VM: "web-a", IP: "192.168.1.40"},
+			repository.DNSRecord{VM: "web-b", IP: "192.168.1.41"})
+
+		res, err := env.webEnv.svc.DeleteWeb(ctx, "web-a")
+
+		if err != nil || res.Warning != "" {
+			t.Fatalf("DeleteWeb = %+v, %v", res, err)
+		}
+		calls := runner.callsTo("dns/remove-record.sh")
+		want := []string{"dns1", testDomain, "192.168.1.53", "web-a", "web-b,192.168.1.41"}
+		if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+			t.Errorf("remove-record.sh = %+v, se esperaba %v", calls, want)
+		}
+		if _, has, _ := env.dns.Record(ctx, "web-a"); has {
+			t.Error("el registro de web-a debía borrarse")
+		}
+	})
 	t.Run("asignado a un balanceador", func(t *testing.T) {
 		runner := &fakeRunner{}
 		env := newWebEnv(t, runner)
@@ -297,6 +319,76 @@ func TestAC10_DeleteWebRemovesRecord(t *testing.T) {
 		}
 		if n := runner.callCount(); n != 0 {
 			t.Errorf("el runner se llamó %d veces, se esperaba 0", n)
+		}
+	})
+}
+
+// AC-5: con un servidor DNS, crear un servidor web agrega su registro con la IP que imprime
+// create-web.sh, como una segunda operación add_records.
+func TestAC5_CreateWebAddsRecord(t *testing.T) {
+	runner := &fakeRunner{results: map[string]RunResult{
+		"web/create-web.sh":  {Stdout: []byte("Servidor web web-a (Nginx) creado; IP 192.168.1.40\nip=192.168.1.40\n")},
+		"dns/add-records.sh": {Stdout: []byte("Registros aplicados\nreloaded=yes\n")},
+	}}
+	env := newDNSEnv(t, runner)
+	env.registerDNS(t, "dns1")
+	ctx := context.Background()
+
+	res, err := env.webEnv.svc.CreateWeb(ctx, CreateWebInput{Name: "web-a", MemoryMB: 1024, CPUs: 1, Type: WebTypeNginx})
+
+	if err != nil || res.Warning != "" {
+		t.Fatalf("CreateWeb = %+v, %v", res, err)
+	}
+	calls := runner.callsTo("dns/add-records.sh")
+	want := []string{"dns1", testDomain, "192.168.1.53", "web-a,192.168.1.40"}
+	if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+		t.Errorf("add-records.sh = %+v, se esperaba %v", calls, want)
+	}
+	if rec, has, _ := env.dns.Record(ctx, "web-a"); !has || rec.IP != "192.168.1.40" {
+		t.Errorf("dns_records = %+v, %v", rec, has)
+	}
+}
+
+// AC-6: si el registro DNS falla, el servidor web queda creado con la advertencia de REQ-5 y una fila
+// add_records fallida en el historial de dns; sin servidor DNS no se llama a add-records.sh.
+func TestAC6_CreateWebDNSFailureWarns(t *testing.T) {
+	const created = "Servidor web web-a (Nginx) creado; IP 192.168.1.40\nip=192.168.1.40\n"
+	t.Run("DNS apagado", func(t *testing.T) {
+		runner := &fakeRunner{results: map[string]RunResult{
+			"web/create-web.sh":  {Stdout: []byte(created)},
+			"dns/add-records.sh": {ExitCode: 7},
+		}}
+		env := newDNSEnv(t, runner)
+		env.registerDNS(t, "dns1")
+		ctx := context.Background()
+
+		res, err := env.webEnv.svc.CreateWeb(ctx, CreateWebInput{Name: "web-a", MemoryMB: 1024, CPUs: 1, Type: WebTypeNginx})
+
+		if err != nil {
+			t.Fatalf("CreateWeb: %v", err)
+		}
+		if res.Warning != "Servidor web creado; no se pudo registrar en DNS, agréguelo desde DNS" {
+			t.Errorf("advertencia = %q", res.Warning)
+		}
+		if _, ok, _ := env.web.Get(ctx, "web-a"); !ok {
+			t.Error("web-a debía quedar creado")
+		}
+		if op := env.lastDNSOperation(t); op.Operation != "add_records" || op.Result != "error" {
+			t.Errorf("historial dns = %+v, se esperaba add_records fallido", op)
+		}
+	})
+	t.Run("sin servidor DNS", func(t *testing.T) {
+		runner := &fakeRunner{results: map[string]RunResult{"web/create-web.sh": {Stdout: []byte(created)}}}
+		env := newDNSEnv(t, runner)
+
+		res, err := env.webEnv.svc.CreateWeb(context.Background(),
+			CreateWebInput{Name: "web-a", MemoryMB: 1024, CPUs: 1, Type: WebTypeNginx})
+
+		if err != nil || res.Warning != "" {
+			t.Errorf("CreateWeb = %+v, %v", res, err)
+		}
+		if n := runner.callCount(); n != 1 {
+			t.Errorf("el runner se llamó %d veces, se esperaba 1", n)
 		}
 	})
 }

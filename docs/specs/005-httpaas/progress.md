@@ -33,3 +33,10 @@
 - Decisions: `lbTopology` extracted to `haproxy_topology.go`, shared by `ListVMs` and `Overview`. `DNSVMView.role` is the 004 role (vm, lb, server); `kind` is the web type.
 - Notes: `NewHAProxyService` takes `dnsRepo` after `lbs`; `NewWebService` and `NewPrepareService` take `*DNSService` before the logger (`WebService.dns` is still unused until T088). Test envs: `newDNSEnv` wraps `webEnv` (`env.svc` is the DNSService, `env.dnsSvc` is shared); handler `testServer.dns` and `registerDNSServer`.
 - Notes: `DeleteDNS`/`DeleteVM` still return string; `ActionResult` comes in T090.
+
+## Phase 7: Add and remove A records (US-5)
+- Files: `scripts/dns/{add-records,remove-record}.{sh,bats}`; `service/dns_records{,_test}.go`; `web_servers.go`, `prepare_vms.go`, `haproxy_lbs.go`, `haproxy_service.go` (+ tests); `handler/{dns,prepare,haproxy}.go` (+ test); `main.go`.
+- Decisions: `AddRecords` sends one `add-records.sh` with the full set (stored + accepted, sorted by VM); if none is accepted it returns the first rejection's error (409/404), else 200 `{message, results}`. `RemoveRecord` on a VM without record succeeds without a script.
+- Decisions: `CreateWeb` split into `createWeb` (holds the create lock) + DNS hook after unlock (`AddRecordsFor`); failure or missing `ip=` with a DNS server → warning. `AfterVMDeleted` clears the resolver, deletes the row first, then runs `remove-record.sh` (nil hook); failure → REQ-24 warning, next refresh renders from SQLite.
+- Decisions: hook rejections before the script (lock taken, config invalid) are saved by `recordRejected` as failed history rows (exit -1).
+- Notes: `NewHAProxyService(..., locks, dns *DNSService, logger)`; `main.go` builds DNSService before HAProxy. `DeleteVM` and `DeleteLB` return `ActionResult` (`{message, warning?}`).

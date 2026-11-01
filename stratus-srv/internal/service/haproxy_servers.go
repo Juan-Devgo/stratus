@@ -40,7 +40,8 @@ func (s *HAProxyService) ListServers(ctx context.Context, lb string) ([]ServerVi
 
 // AssignServer asigna la VM al balanceador con assign-server.sh (REQ-8 a REQ-10). Antes de llamar al
 // script comprueba, sin cambiar nada: puerto válido, balanceador y VM registrados, que la VM no sea
-// un balanceador ni servidor de ningún balanceador (ErrVMNotAssignable) y que el balanceador tenga
+// un balanceador, ni servidor de ningún balanceador, ni el servidor DNS (ErrVMNotAssignable, 005
+// REQ-19) y que el balanceador tenga
 // menos de 10 servidores (ErrLBFull). Toma el bloqueo del balanceador y de la VM a la vez (REQ-21).
 // Si el script termina bien, guarda la fila con la IP que imprime ("ip=<ip>") antes de soltarlos.
 func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port int) (string, error) {
@@ -68,6 +69,11 @@ func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port i
 		return "", err
 	} else if assigned {
 		return "", ErrVMNotAssignable // ya es servidor de este balanceador o de otro
+	}
+	if dnsServer, ok, err := s.dnsRepo.Server(ctx); err != nil {
+		return "", err
+	} else if ok && dnsServer == vm {
+		return "", ErrVMNotAssignable // el servidor DNS tiene IP fija en puente (005 REQ-19)
 	}
 	rows, err := s.lbs.Servers(ctx, lb)
 	if err != nil {

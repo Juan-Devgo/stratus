@@ -107,11 +107,12 @@ func newTestEnv(t *testing.T, runner ScriptRunner) testEnv {
 	}
 	locks := &VMLocks{}
 	logger := log.New(env.logs, "", 0)
+	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
 	haproxy := NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
-		runner, env.vms, env.lbs, env.history, locks, logger)
-	web := NewWebService(WebConfig{}, runner, env.vms, env.lbs, repository.NewWebRepository(db),
-		repository.NewDNSRepository(db), env.history, locks, logger)
-	env.svc = NewPrepareService(cfg, runner, env.vms, env.lbs, env.history, locks, haproxy, web, logger)
+		runner, env.vms, env.lbs, dnsRepo, env.history, locks, logger)
+	dns := NewDNSService(DNSConfig{}, runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, locks, logger)
+	web := NewWebService(WebConfig{}, runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, locks, dns, logger)
+	env.svc = NewPrepareService(cfg, runner, env.vms, env.lbs, env.history, locks, haproxy, web, dns, logger)
 	return env
 }
 
@@ -127,10 +128,11 @@ func newPrepareForTest(t *testing.T, runner ScriptRunner, vms *repository.VMRepo
 	}
 	t.Cleanup(func() { db.Close() })
 	lbs := repository.NewLBRepository(db)
-	haproxy := NewHAProxyService(HAProxyConfig{}, runner, vms, lbs, history, locks, logger)
-	web := NewWebService(WebConfig{}, runner, vms, lbs, repository.NewWebRepository(db), repository.NewDNSRepository(db),
-		history, locks, logger)
-	return NewPrepareService(Config{KeyTTL: 1}, runner, vms, lbs, history, locks, haproxy, web, logger)
+	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
+	haproxy := NewHAProxyService(HAProxyConfig{}, runner, vms, lbs, dnsRepo, history, locks, logger)
+	dns := NewDNSService(DNSConfig{}, runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
+	web := NewWebService(WebConfig{}, runner, vms, lbs, webRepo, dnsRepo, history, locks, dns, logger)
+	return NewPrepareService(Config{KeyTTL: 1}, runner, vms, lbs, history, locks, haproxy, web, dns, logger)
 }
 
 // register registra una VM directamente en SQLite, sin pasar por el script.
@@ -986,11 +988,13 @@ func TestStartFailureSkipsRefresh(t *testing.T) {
 // AC-8: en el selector de 001 cada VM trae su tipo: el de servidor web o vacío.
 func TestAC8_ListVMsKind(t *testing.T) {
 	runner := &fakeRunner{results: map[string]RunResult{
-		"prepare/list-vms.sh": {Stdout: []byte("web-a running 192.168.1.40\nweb-b poweroff -\nvm1 running 192.168.1.50\n")},
+		"prepare/list-vms.sh": {Stdout: []byte("web-a running 192.168.1.40\nweb-b poweroff -\nvm1 running 192.168.1.50\n" +
+			"dns1 running 192.168.1.53\n")},
 	}}
-	env := newWebEnv(t, runner)
+	env := newDNSEnv(t, runner)
 	env.registerWeb(t, "web-a", WebTypeNginx)
 	env.registerWeb(t, "web-b", WebTypeApache)
+	env.registerDNS(t, "dns1")
 	if _, err := env.vms.Insert(context.Background(), "vm1"); err != nil {
 		t.Fatal(err)
 	}
@@ -1004,7 +1008,7 @@ func TestAC8_ListVMsKind(t *testing.T) {
 	for _, vm := range vms {
 		got[vm.Name] = vm.Kind
 	}
-	want := map[string]string{"web-a": "nginx", "web-b": "apache", "vm1": ""}
+	want := map[string]string{"web-a": "nginx", "web-b": "apache", "vm1": "", "dns1": "dns"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("kind = %v, se esperaba %v", got, want)
 	}
@@ -1027,5 +1031,36 @@ func TestAC10_DeleteVMDelegatesWebServer(t *testing.T) {
 	}
 	if _, ok, _ := env.web.Get(ctx, "web-a"); ok {
 		t.Error("web-a debía salir de web_servers")
+	}
+}
+
+// AC-29: eliminar desde 001 el servidor DNS pasa por el módulo DNS (delete_dns) y respeta sus reglas.
+func TestAC29_PrepareDeleteDelegatesDNS(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newDNSEnv(t, runner)
+	ctx := context.Background()
+	env.registerDNS(t, "dns1")
+	if err := env.dns.SetResolver(ctx, "vm1", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := env.prepare.DeleteVM(ctx, "dns1"); err == nil ||
+		err.Error() != "Quite primero el resolvedor DNS de las VMs: vm1" {
+		t.Errorf("con resolvedor: err = %v", err)
+	}
+	if err := env.dns.SetResolver(ctx, "vm1", false); err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := env.prepare.DeleteVM(ctx, "dns1")
+
+	if err != nil || msg != "Servidor DNS dns1 eliminado junto con su disco" {
+		t.Fatalf("DeleteVM = %q, %v", msg, err)
+	}
+	if op := env.lastDNSOperation(t); op.Operation != "delete_dns" || op.Module != dnsModule {
+		t.Errorf("historial dns = %+v, se esperaba delete_dns", op)
+	}
+	if _, ok, _ := env.dns.Server(ctx); ok {
+		t.Error("dns_server debía quedar vacío")
 	}
 }

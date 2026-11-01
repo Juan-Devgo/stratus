@@ -26,3 +26,10 @@
 - Files: scripts/web/{start,stop,restart,status}-web.{sh,bats}, scripts/dns/{start,stop,restart,status}-bind.{sh,bats}; service/web_actions{,_test}.go, web_service_test.go (`assignToLB`); handler/web{,_test}.go.
 - Decisions: the 8 scripts are thin wrappers: validate, `--jump` route (web only), `showvminfo` → 3, then `unit_action`/`unit_status` whose code is the script's code. Bind scripts take only `<dns>` (the DNS server is never behind a LB), so `--jump` there is exit 2. `WebAction` rejects other actions with a ValidationError ("Acción no válida: debe ser start, stop o restart"); `unitActions` is shared for DNSAction later. No `mapWebError` on actions/status (no own codes).
 - Notes: history ops `start_web`, `stop_web`, `restart_web` always; `status_web` only on failure. Routes reply `ServiceResult` (`{message, active_state?}`) and `{output}`.
+
+## Phase 6: DNS server (US-4)
+- Files: `scripts/dns/create-dns.{sh,bats}`, `scripts/dns/test_helper.bash` (`stub_dns_vm`); `service/dns_service.go`, `dns_server.go` (+ tests); `handler/dns.go` (+ test); constructors of Web, HAProxy, Prepare; `main.go`.
+- Decisions: `CreateDNS` maps its codes with `mapCreateDNSError` (6 disk, 13 IP in use); `mapDNSError` (7 → DNS off) is only for the record scripts of Phase 7. Initial records come from `list-vms.sh`; the DNS server's own A line is rendered by `render_zone`, never stored in `dns_records`.
+- Decisions: `lbTopology` extracted to `haproxy_topology.go`, shared by `ListVMs` and `Overview`. `DNSVMView.role` is the 004 role (vm, lb, server); `kind` is the web type.
+- Notes: `NewHAProxyService` takes `dnsRepo` after `lbs`; `NewWebService` and `NewPrepareService` take `*DNSService` before the logger (`WebService.dns` is still unused until T088). Test envs: `newDNSEnv` wraps `webEnv` (`env.svc` is the DNSService, `env.dnsSvc` is shared); handler `testServer.dns` and `registerDNSServer`.
+- Notes: `DeleteDNS`/`DeleteVM` still return string; `ActionResult` comes in T090.

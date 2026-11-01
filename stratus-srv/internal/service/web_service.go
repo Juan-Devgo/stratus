@@ -40,15 +40,16 @@ type WebService struct {
 	dnsRepo *repository.DNSRepository // registros DNS, para mostrar el FQDN
 	history *repository.HistoryRepository
 	locks   *VMLocks
+	dns     *DNSService // registros DNS de los servidores web creados y eliminados
 	logger  *log.Logger
 	ops     *operationRunner // bloqueos, historial y log compartidos con los demás módulos
 }
 
 func NewWebService(cfg WebConfig, runner ScriptRunner, vms *repository.VMRepository, lbs *repository.LBRepository,
 	web *repository.WebRepository, dnsRepo *repository.DNSRepository, history *repository.HistoryRepository,
-	locks *VMLocks, logger *log.Logger) *WebService {
+	locks *VMLocks, dns *DNSService, logger *log.Logger) *WebService {
 	return &WebService{cfg: cfg, runner: runner, vms: vms, lbs: lbs, web: web, dnsRepo: dnsRepo, history: history,
-		locks: locks, logger: logger, ops: newOperationRunner(webModule, runner, history, locks, logger)}
+		locks: locks, dns: dns, logger: logger, ops: newOperationRunner(webModule, runner, history, locks, logger)}
 }
 
 // History devuelve las últimas 50 operaciones del módulo, la más reciente primero (REQ-36).

@@ -398,3 +398,25 @@ func TestServerStatusTakesLBLock(t *testing.T) {
 		t.Errorf("el runner se llamó %d veces, se esperaban 0", n)
 	}
 }
+
+// AC-28: el servidor DNS no se puede asignar a un balanceador; no se llama a ningún script.
+func TestAC28_DNSServerRulesAssign(t *testing.T) {
+	env, runner := newAssignEnv(t)
+	ctx := context.Background()
+	env.register(t, "dns1")
+	if err := env.dns.InsertServer(ctx, "dns1", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := env.svc.AssignServer(ctx, "lb1", "dns1", 80)
+
+	if !errors.Is(err, ErrVMNotAssignable) {
+		t.Errorf("err = %v, se esperaba ErrVMNotAssignable", err)
+	}
+	if n := runner.callCount(); n != 0 {
+		t.Errorf("el runner se llamó %d veces, se esperaba 0", n)
+	}
+	if _, assigned, _ := env.lbs.ServerByVM(ctx, "dns1"); assigned {
+		t.Error("dns1 no debía quedar asignado")
+	}
+}

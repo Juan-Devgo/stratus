@@ -10,6 +10,12 @@
 #                             ../prepare/stop-vm.sh y stubs de arping y ping (ver abajo).
 #   hide_arping               deja el PATH sin ningún arping (ni el stub ni el del equipo), para
 #                             probar "arping no está instalado en el host".
+#   stub_dns_vm <vm> <ip_dhcp> <ip|->...
+#                             VM de una sola NIC (MAC 080027EEEEEE) para create-dns: antes de
+#                             "startvm <vm>" la IP del adaptador 1 es <ip_dhcp>; después, cada
+#                             lectura responde el siguiente valor de la lista ("-" sin IP; al
+#                             acabarse se repite el último). "startvm" la deja running y el stub de
+#                             stop-vm.sh, poweroff.
 #
 # Variables que dejan las funciones:
 #   DNS_DIR   scripts/dns original (para assert_script_structure)
@@ -32,6 +38,7 @@
 #                         cliente DHCP del invitado para los programas del resolvedor: con none
 #                         el programa remoto sale con 3 (por defecto dhclient).
 #   DIG_OUT=<texto>       salida de dig (por defecto la IP del servidor DNS, 192.168.1.53).
+#   DNS_IFACE=<nombre>    interfaz con la MAC buscada en /sys/class/net (por defecto enp0s3).
 
 # Directorio de los scripts del módulo (donde vive este helper).
 DNS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -99,6 +106,10 @@ if [[ "$flat" == *"stratus-resolver"* && "${DHCP_CLIENT:-dhclient}" == none ]]; 
   echo "No se encontró un cliente DHCP compatible" >&2
   exit 3
 fi
+if [[ "$flat" == *"/sys/class/net"* ]]; then
+  printf '%s\n' "${DNS_IFACE:-enp0s3}"
+  exit 0
+fi
 if [[ "$flat" == dig* || "$flat" == *" dig "* ]]; then
   printf '%s\n' "${DIG_OUT:-192.168.1.53}"
   exit 0
@@ -119,4 +130,36 @@ hide_arping() {
   ln -sf /usr/bin/* "$tmp/sys/" 2>/dev/null || true
   rm -f "$tmp/sys/arping"
   export PATH="$tmp/bin:$tmp/sys"
+}
+
+# stub_dns_vm <vm> <ip_dhcp> <ip|->...
+stub_dns_vm() {
+  local vm="$1" dhcp="$2" tmp="$BATS_TEST_TMPDIR" value
+  shift 2
+  : >"$tmp/seq-$vm"
+  : >"$tmp/seq-$vm.count"
+  for value in "$@"; do
+    if [[ "$value" == "-" ]]; then
+      echo "No value set!" >>"$tmp/seq-$vm"
+    else
+      echo "Value: $value" >>"$tmp/seq-$vm"
+    fi
+  done
+  stub_command VBoxManage "if [[ \"\$1\" == startvm && \"\${2:-}\" == \"$vm\" ]]; then echo running >'$tmp/state-$vm'; : >'$tmp/started-$vm'; exit 0; fi
+if [[ \"\$1\" == showvminfo && \"\${2:-}\" == \"$vm\" ]]; then
+  printf 'VMState=\"%s\"\\nnic1=\"bridged\"\\nmacaddress1=\"080027EEEEEE\"\\nnic2=\"none\"\\n' \"\$(cat '$tmp/state-$vm' 2>/dev/null || echo running)\"
+  exit 0
+fi
+if [[ \"\$1 \${2:-}\" == \"guestproperty get\" && \"\${3:-}\" == \"$vm\" && \"\${4:-}\" == /VirtualBox/GuestInfo/Net/0/V4/IP ]]; then
+  if [[ ! -e '$tmp/started-$vm' ]]; then
+    echo 'Value: $dhcp'
+  else
+    n=\$((\$(cat '$tmp/seq-$vm.count' 2>/dev/null || echo 0) + 1))
+    echo \"\$n\" >'$tmp/seq-$vm.count'
+    line=\"\$(sed -n \"\${n}p\" '$tmp/seq-$vm')\"
+    [[ -n \"\$line\" ]] || line=\"\$(tail -n 1 '$tmp/seq-$vm')\"
+    echo \"\$line\"
+  fi
+  exit 0
+fi"
 }

@@ -137,7 +137,7 @@ func TestAC3_CreateWebMissingDiskRegistersNothing(t *testing.T) {
 		env := newWebEnv(t, runner)
 		cfg := testWebConfig()
 		cfg.ApacheBaseDisk = ""
-		svc := NewWebService(cfg, runner, env.vms, env.lbs, env.web, env.dns, env.history, env.locks, env.svc.logger)
+		svc := NewWebService(cfg, runner, env.vms, env.lbs, env.web, env.dns, env.history, env.locks, env.dnsSvc, env.svc.logger)
 		ctx := context.Background()
 
 		_, err := svc.CreateWeb(ctx, CreateWebInput{Name: "web-a", MemoryMB: 1024, CPUs: 1, Type: WebTypeApache})

@@ -1,0 +1,174 @@
+package handler
+
+import (
+	"context"
+	"net/http"
+	"testing"
+
+	"stratus-srv/internal/service"
+)
+
+// registerDNSServer registra el servidor DNS directamente en SQLite.
+func (ts testServer) registerDNSServer(t *testing.T, name string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := ts.vms.Insert(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.dns.InsertServer(ctx, name, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// REQ-17, REQ-23: GET /api/dns trae el servidor (null si no hay) y las demás VMs.
+func TestAC23_DNSOverviewRoute(t *testing.T) {
+	runner := &fakeRunner{results: map[string]service.RunResult{
+		"prepare/list-vms.sh": {Stdout: []byte("dns1 running 192.168.1.53\nvm1 poweroff -\n")},
+	}}
+	ts := newTestServerWithLBs(t, runner)
+
+	status, body := do(t, http.MethodGet, ts.URL+"/api/dns", "")
+	if status != http.StatusOK || body["server"] != nil {
+		t.Errorf("sin servidor: status = %d, server = %v", status, body["server"])
+	}
+
+	ts.registerDNSServer(t, "dns1")
+	if _, err := ts.vms.Insert(context.Background(), "vm1"); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body = do(t, http.MethodGet, ts.URL+"/api/dns", "")
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, se esperaba 200", status)
+	}
+	server, _ := body["server"].(map[string]any)
+	want := map[string]any{"name": "dns1", "state": "running", "ip": "192.168.1.53", "zone": "stratus.lan"}
+	for k, v := range want {
+		if server[k] != v {
+			t.Errorf("server.%s = %v, se esperaba %v", k, server[k], v)
+		}
+	}
+	vms, _ := body["vms"].([]any)
+	if len(vms) != 1 {
+		t.Fatalf("vms = %v, se esperaba solo vm1", body["vms"])
+	}
+	row, _ := vms[0].(map[string]any)
+	for k, v := range map[string]any{"name": "vm1", "kind": "", "role": "vm", "state": "poweroff", "ip": "",
+		"fqdn": "", "record_ip": "", "resolver": false} {
+		if row[k] != v {
+			t.Errorf("vm1.%s = %v, se esperaba %v", k, row[k], v)
+		}
+	}
+	if listErr, ok := body["list_error"].(string); !ok || listErr != "" {
+		t.Errorf("list_error = %v, se esperaba vacío", body["list_error"])
+	}
+}
+
+// AC-22, AC-23: POST /api/dns/server crea el servidor (201); un segundo intento responde 409.
+func TestAC22_CreateDNSRoute(t *testing.T) {
+	const line = "Servidor DNS dns1 creado en 192.168.1.53; zona stratus.lan"
+	runner := &fakeRunner{results: map[string]service.RunResult{"dns/create-dns.sh": {Stdout: []byte(line + "\n")}}}
+	ts := newTestServerWithLBs(t, runner)
+
+	status, body := do(t, http.MethodPost, ts.URL+"/api/dns/server", `{"name":"dns1","memory_mb":1024,"cpus":1}`)
+
+	if status != http.StatusCreated || body["message"] != line {
+		t.Errorf("status = %d, body = %v; se esperaba 201 con el mensaje", status, body)
+	}
+
+	status, body = do(t, http.MethodPost, ts.URL+"/api/dns/server", `{"name":"dns2","memory_mb":1024,"cpus":1}`)
+
+	if status != http.StatusConflict || body["error"] != "Ya existe un servidor DNS" {
+		t.Errorf("segundo: status = %d, body = %v; se esperaba 409", status, body)
+	}
+	if n := runner.callCount(); n != 1 {
+		t.Errorf("el runner se llamó %d veces, se esperaba 1 (solo create-dns.sh)", n)
+	}
+}
+
+// AC-29: DELETE /api/dns/server con un resolvedor responde 409 con su texto; sin resolvedores, 200.
+func TestAC29_DeleteDNSRoute(t *testing.T) {
+	ts := newTestServerWithLBs(t, &fakeRunner{})
+	ts.registerDNSServer(t, "dns1")
+	if err := ts.dns.SetResolver(context.Background(), "vm1", true); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodDelete, ts.URL+"/api/dns/server", "")
+
+	if status != http.StatusConflict || body["error"] != "Quite primero el resolvedor DNS de las VMs: vm1" {
+		t.Errorf("con resolvedor: status = %d, body = %v", status, body)
+	}
+
+	if err := ts.dns.SetResolver(context.Background(), "vm1", false); err != nil {
+		t.Fatal(err)
+	}
+	status, body = do(t, http.MethodDelete, ts.URL+"/api/dns/server", "")
+
+	if status != http.StatusOK || body["message"] != "Servidor DNS dns1 eliminado junto con su disco" {
+		t.Errorf("sin resolvedor: status = %d, body = %v", status, body)
+	}
+}
+
+// AC-19, AC-20: POST /api/dns/server/{start|stop|restart} y GET /api/dns/server/status; sin servidor
+// DNS responden 409.
+func TestAC19_DNSActionRoutes(t *testing.T) {
+	for _, action := range []string{"start", "stop", "restart"} {
+		t.Run(action, func(t *testing.T) {
+			out := "Servicio named listo en dns1\n"
+			if action != "stop" {
+				out += "active_state=active\n"
+			}
+			runner := &fakeRunner{results: map[string]service.RunResult{"dns/" + action + "-bind.sh": {Stdout: []byte(out)}}}
+			ts := newTestServerWithLBs(t, runner)
+
+			status, body := do(t, http.MethodPost, ts.URL+"/api/dns/server/"+action, "")
+			if status != http.StatusConflict || body["error"] != "No hay servidor DNS" {
+				t.Errorf("sin servidor: status = %d, body = %v", status, body)
+			}
+
+			ts.registerDNSServer(t, "dns1")
+			status, body = do(t, http.MethodPost, ts.URL+"/api/dns/server/"+action, "")
+
+			if status != http.StatusOK || body["message"] != "Servicio named listo en dns1" {
+				t.Errorf("status = %d, body = %v", status, body)
+			}
+			if _, has := body["active_state"]; has != (action != "stop") {
+				t.Errorf("active_state en %s: %v", action, body)
+			}
+		})
+	}
+
+	t.Run("status", func(t *testing.T) {
+		const out = "named.service\n     Active: active\n"
+		runner := &fakeRunner{results: map[string]service.RunResult{"dns/status-bind.sh": {Stdout: []byte(out)}}}
+		ts := newTestServerWithLBs(t, runner)
+		ts.registerDNSServer(t, "dns1")
+
+		status, body := do(t, http.MethodGet, ts.URL+"/api/dns/server/status", "")
+
+		if status != http.StatusOK || body["output"] != out {
+			t.Errorf("status = %d, body = %v", status, body)
+		}
+	})
+}
+
+// AC-53: GET /api/dns/history trae las operaciones del módulo dns.
+func TestAC53_DNSHistoryRoute(t *testing.T) {
+	ts := newTestServerWithLBs(t, &fakeRunner{})
+	ts.registerDNSServer(t, "dns1")
+	if status, _ := do(t, http.MethodDelete, ts.URL+"/api/dns/server", ""); status != http.StatusOK {
+		t.Fatalf("delete status = %d", status)
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/api/dns/history", "")
+
+	ops, _ := body["operations"].([]any)
+	if status != http.StatusOK || len(ops) != 1 {
+		t.Fatalf("status = %d, operations = %v", status, body["operations"])
+	}
+	if op, _ := ops[0].(map[string]any); op["operation"] != "delete_dns" {
+		t.Errorf("operation = %v, se esperaba delete_dns", op["operation"])
+	}
+}

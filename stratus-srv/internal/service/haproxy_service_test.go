@@ -23,6 +23,7 @@ type haproxyEnv struct {
 	prepare *PrepareService
 	vms     *repository.VMRepository
 	lbs     *repository.LBRepository
+	dns     *repository.DNSRepository
 	history *repository.HistoryRepository
 	locks   *VMLocks
 	runner  *fakeRunner
@@ -40,6 +41,7 @@ func newHAProxyEnv(t *testing.T, runner *fakeRunner) haproxyEnv {
 	env := haproxyEnv{
 		vms:     repository.NewVMRepository(db),
 		lbs:     repository.NewLBRepository(db),
+		dns:     repository.NewDNSRepository(db),
 		history: repository.NewHistoryRepository(db),
 		locks:   &VMLocks{},
 		runner:  runner,
@@ -47,11 +49,12 @@ func newHAProxyEnv(t *testing.T, runner *fakeRunner) haproxyEnv {
 	}
 	logger := log.New(env.logs, "", 0)
 	env.svc = NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
-		runner, env.vms, env.lbs, env.history, env.locks, logger)
-	web := NewWebService(testWebConfig(), runner, env.vms, env.lbs, repository.NewWebRepository(db),
-		repository.NewDNSRepository(db), env.history, env.locks, logger)
+		runner, env.vms, env.lbs, env.dns, env.history, env.locks, logger)
+	webRepo, dnsRepo := repository.NewWebRepository(db), env.dns
+	dns := NewDNSService(testDNSConfig(), runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, env.locks, logger)
+	web := NewWebService(testWebConfig(), runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, env.locks, dns, logger)
 	env.prepare = NewPrepareService(Config{BaseDisk: testBaseDisk, BridgeAdapter: testBridge, KeyTTL: 10 * time.Minute},
-		runner, env.vms, env.lbs, env.history, env.locks, env.svc, web, logger)
+		runner, env.vms, env.lbs, env.history, env.locks, env.svc, web, dns, logger)
 	return env
 }
 

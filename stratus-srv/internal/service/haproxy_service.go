@@ -35,6 +35,7 @@ type HAProxyService struct {
 	runner  ScriptRunner
 	vms     *repository.VMRepository
 	lbs     *repository.LBRepository
+	dnsRepo *repository.DNSRepository // el servidor DNS no se puede asignar (005 REQ-19)
 	history *repository.HistoryRepository
 	locks   *VMLocks
 	logger  *log.Logger
@@ -42,9 +43,9 @@ type HAProxyService struct {
 }
 
 func NewHAProxyService(cfg HAProxyConfig, runner ScriptRunner, vms *repository.VMRepository,
-	lbs *repository.LBRepository, history *repository.HistoryRepository, locks *VMLocks,
-	logger *log.Logger) *HAProxyService {
-	return &HAProxyService{cfg: cfg, runner: runner, vms: vms, lbs: lbs, history: history, locks: locks,
+	lbs *repository.LBRepository, dnsRepo *repository.DNSRepository, history *repository.HistoryRepository,
+	locks *VMLocks, logger *log.Logger) *HAProxyService {
+	return &HAProxyService{cfg: cfg, runner: runner, vms: vms, lbs: lbs, dnsRepo: dnsRepo, history: history, locks: locks,
 		logger: logger, ops: newOperationRunner(haproxyModule, runner, history, locks, logger)}
 }
 

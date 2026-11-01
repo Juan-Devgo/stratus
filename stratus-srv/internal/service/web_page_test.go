@@ -85,7 +85,7 @@ func TestAC13_InstallPageSizeAndExtension(t *testing.T) {
 	}
 	cfg := testWebConfig()
 	cfg.MaxArchiveBytes = 4
-	svc := NewWebService(cfg, runner, env.vms, env.lbs, env.web, env.dns, env.history, env.locks, env.svc.logger)
+	svc := NewWebService(cfg, runner, env.vms, env.lbs, env.web, env.dns, env.history, env.locks, env.dnsSvc, env.svc.logger)
 	ctx := context.Background()
 
 	var vErr *ValidationError

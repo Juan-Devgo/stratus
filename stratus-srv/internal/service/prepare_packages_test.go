@@ -284,3 +284,35 @@ func TestAC9_PackageOnAssignedWebServerOrder(t *testing.T) {
 		t.Errorf("argv = %q, se esperaba %q", got, want)
 	}
 }
+
+// AC-28: en el servidor DNS, quitar bind9 se rechaza sin llamar al script, y los demás paquetes van
+// con "--role dns" para que ufw permita también 53/tcp y 53/udp.
+func TestAC28_DNSServerRulesPackages(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newDNSEnv(t, runner)
+	env.registerDNS(t, "dns1")
+	ctx := context.Background()
+
+	_, err := env.prepare.RemovePackage(ctx, "dns1", "bind9")
+
+	var blockedErr *PackageBlockedError
+	if !errors.As(err, &blockedErr) || err.Error() != "No se puede eliminar bind9: el servidor DNS lo usa" {
+		t.Errorf("RemovePackage(bind9): err = %v", err)
+	}
+	if n := runner.callCount(); n != 0 {
+		t.Fatalf("el runner se llamó %d veces, se esperaban 0", n)
+	}
+
+	if _, err := env.prepare.InstallPackage(ctx, "dns1", "ufw"); err != nil {
+		t.Fatalf("InstallPackage(ufw): %v", err)
+	}
+	if got, want := runner.callsTo("prepare/install-package.sh")[0].Args, []string{"--role", "dns", "dns1", "ufw"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("install argv = %q, se esperaba %q", got, want)
+	}
+	if _, err := env.prepare.RemovePackage(ctx, "dns1", "curl"); err != nil {
+		t.Fatalf("RemovePackage(curl): %v", err)
+	}
+	if got, want := runner.callsTo("prepare/remove-package.sh")[0].Args, []string{"--role", "dns", "dns1", "curl"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("remove argv = %q, se esperaba %q", got, want)
+	}
+}

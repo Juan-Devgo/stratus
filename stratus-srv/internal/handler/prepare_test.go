@@ -53,6 +53,7 @@ type testServer struct {
 	vms *repository.VMRepository
 	lbs *repository.LBRepository
 	web *repository.WebRepository
+	dns *repository.DNSRepository
 }
 
 // newTestServer arma el handler con el servicio real, SQLite temporal y el runner falso.
@@ -63,7 +64,7 @@ func newTestServer(t *testing.T, runner service.ScriptRunner) (*httptest.Server,
 }
 
 // newTestServerWithLBs es newTestServer más el repositorio de balanceadores; registra también las
-// rutas de /api/haproxy y de /api/web.
+// rutas de /api/haproxy, de /api/web y de /api/dns.
 func newTestServerWithLBs(t *testing.T, runner service.ScriptRunner) testServer {
 	t.Helper()
 	db, err := repository.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -77,22 +78,26 @@ func newTestServerWithLBs(t *testing.T, runner service.ScriptRunner) testServer 
 	history := repository.NewHistoryRepository(db)
 	locks := &service.VMLocks{}
 	logger := log.New(io.Discard, "", 0)
+	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
 	haproxy := service.NewHAProxyService(service.HAProxyConfig{BaseDisk: "/vms/haproxy-base.vdi", BridgeAdapter: "eth0"},
-		runner, vms, lbs, history, locks, logger)
+		runner, vms, lbs, dnsRepo, history, locks, logger)
 	cfg := service.Config{BaseDisk: "/vms/base.vdi", BridgeAdapter: "eth0", KeyTTL: 10 * time.Minute}
-	webRepo := repository.NewWebRepository(db)
+	dns := service.NewDNSService(service.DNSConfig{BaseDisk: "/vms/dns-base.vdi", BridgeAdapter: "eth0",
+		IP: "192.168.1.53/24", Gateway: "192.168.1.1", Domain: "stratus.lan", Forwarders: "1.1.1.1,8.8.8.8"},
+		runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
 	web := service.NewWebService(service.WebConfig{ApacheBaseDisk: "/vms/apache-base.vdi",
 		NginxBaseDisk: "/vms/nginx-base.vdi", BridgeAdapter: "eth0", Domain: "stratus.lan", MaxArchiveBytes: maxTestArchive},
-		runner, vms, lbs, webRepo, repository.NewDNSRepository(db), history, locks, logger)
-	svc := service.NewPrepareService(cfg, runner, vms, lbs, history, locks, haproxy, web, logger)
+		runner, vms, lbs, webRepo, dnsRepo, history, locks, dns, logger)
+	svc := service.NewPrepareService(cfg, runner, vms, lbs, history, locks, haproxy, web, dns, logger)
 
 	mux := http.NewServeMux()
 	RegisterPrepare(mux, svc)
 	RegisterHAProxy(mux, haproxy)
 	RegisterWeb(mux, web)
+	RegisterDNS(mux, dns)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return testServer{Server: srv, vms: vms, lbs: lbs, web: webRepo}
+	return testServer{Server: srv, vms: vms, lbs: lbs, web: webRepo, dns: dnsRepo}
 }
 
 func reserve(t *testing.T, vms *repository.VMRepository, name string) {

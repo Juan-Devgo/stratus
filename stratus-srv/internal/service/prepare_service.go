@@ -41,15 +41,16 @@ type PrepareService struct {
 	locks   *VMLocks
 	haproxy *HAProxyService // eliminar un balanceador y refrescar sus IPs pasa por el módulo 004
 	web     *WebService     // tipo de los servidores web y su eliminación (005)
+	dns     *DNSService     // el servidor DNS: tipo del selector, paquetes protegidos y eliminación (005)
 	keys    *KeyStore       // llaves privadas de usuario pendientes de descarga, solo en memoria
 }
 
 func NewPrepareService(cfg Config, runner ScriptRunner, vms *repository.VMRepository, lbs *repository.LBRepository,
 	history *repository.HistoryRepository, locks *VMLocks, haproxy *HAProxyService, web *WebService,
-	logger *log.Logger) *PrepareService {
+	dns *DNSService, logger *log.Logger) *PrepareService {
 	return &PrepareService{cfg: cfg, runner: runner, vms: vms, lbs: lbs, history: history, logger: logger,
 		ops: newOperationRunner(prepareModule, runner, history, locks, logger), locks: locks, haproxy: haproxy,
-		web: web, keys: NewKeyStore(cfg.KeyTTL)}
+		web: web, dns: dns, keys: NewKeyStore(cfg.KeyTTL)}
 }
 
 // History devuelve las últimas 50 operaciones del módulo, la más reciente primero (REQ-18).

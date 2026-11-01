@@ -11,6 +11,9 @@ const sshServerPackage = "openssh-server"
 // haproxyPackage es el paquete que un balanceador necesita para funcionar (REQ-5).
 const haproxyPackage = "haproxy"
 
+// bindPackage es el paquete que el servidor DNS necesita para funcionar (005 REQ-18).
+const bindPackage = "bind9"
+
 // webPackages son, por tipo de servidor web, el paquete que usa y el del otro tipo (005 REQ-7).
 var webPackages = map[string]struct{ own, other string }{
 	WebTypeApache: {"apache2", "nginx"},
@@ -63,6 +66,14 @@ func (s *PrepareService) RemovePackage(ctx context.Context, name, pkg string) (s
 	} else if isWeb && pkg == webPackages[typ].own {
 		return "", &PackageBlockedError{Message: fmt.Sprintf("No se puede eliminar %s: el servidor web lo usa", pkg)}
 	}
+	// El servidor DNS usa bind9 (005 REQ-18): igual que el paquete del servidor web.
+	if pkg == bindPackage {
+		if isDNS, err := s.dns.IsDNSServer(ctx, name); err != nil {
+			return "", err
+		} else if isDNS {
+			return "", &PackageBlockedError{Message: "No se puede eliminar bind9: el servidor DNS lo usa"}
+		}
+	}
 	args, err := s.packageArgs(ctx, name, pkg)
 	if err != nil {
 		return "", err
@@ -84,7 +95,8 @@ func (s *PrepareService) checkPackageVM(ctx context.Context, name, pkg string) e
 
 // packageArgs arma el argv de install-package.sh y remove-package.sh, con las opciones en el orden
 // del script: "--jump <lb>" en un servidor asignado, "--frontend <puerto>" en un balanceador y
-// "--role web-apache|web-nginx" en un servidor web, delante de la VM (REQ-5, REQ-19, 005 REQ-7).
+// "--role web-apache|web-nginx|dns" en un servidor web o en el servidor DNS, delante de la VM (REQ-5,
+// REQ-19, 005 REQ-7, REQ-18).
 func (s *PrepareService) packageArgs(ctx context.Context, name, pkg string) ([]string, error) {
 	frontend, err := s.lbFrontendArgs(ctx, name)
 	if err != nil {
@@ -103,6 +115,11 @@ func (s *PrepareService) packageArgs(ctx context.Context, name, pkg string) ([]s
 		return nil, err
 	} else if isWeb {
 		args = append(args, "--role", "web-"+typ)
+	}
+	if isDNS, err := s.dns.IsDNSServer(ctx, name); err != nil {
+		return nil, err
+	} else if isDNS {
+		args = append(args, "--role", "dns")
 	}
 	return append(args, target...), nil
 }

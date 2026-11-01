@@ -68,7 +68,18 @@ func main() {
 	haproxy := service.NewHAProxyService(service.HAProxyConfig{
 		BaseDisk:      cfg.HAProxyBaseDisk,
 		BridgeAdapter: cfg.BridgeAdapter,
-	}, runner, vms, lbs, history, locks, logger)
+	}, runner, vms, lbs, dnsRepo, history, locks, logger)
+
+	// DNSService va antes que WebService y PrepareService: crear y eliminar servidores web y VMs
+	// mantiene sus registros, y el servidor DNS se elimina y protege desde 001.
+	dns := service.NewDNSService(service.DNSConfig{
+		BaseDisk:      cfg.DNSBaseDisk,
+		BridgeAdapter: cfg.BridgeAdapter,
+		IP:            cfg.DNSIP,
+		Gateway:       cfg.DNSGateway,
+		Domain:        cfg.DNSDomain,
+		Forwarders:    cfg.DNSForwarders,
+	}, runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
 
 	// WebService también va antes que PrepareService: el tipo del selector, las reglas de paquetes y
 	// la eliminación de un servidor web desde 001 pasan por él.
@@ -78,14 +89,14 @@ func main() {
 		BridgeAdapter:   cfg.BridgeAdapter,
 		Domain:          cfg.DNSDomain,
 		MaxArchiveBytes: maxArchiveBytes,
-	}, runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
+	}, runner, vms, lbs, webRepo, dnsRepo, history, locks, dns, logger)
 
 	prepare := service.NewPrepareService(service.Config{
 		BaseDisk:      cfg.BaseDisk,
 		BridgeAdapter: cfg.BridgeAdapter,
 		SSHKeyPath:    cfg.SSHKeyPath,
 		KeyTTL:        userKeyTTL,
-	}, runner, vms, lbs, history, locks, haproxy, web, logger)
+	}, runner, vms, lbs, history, locks, haproxy, web, dns, logger)
 
 	users := service.NewUsersService(service.UsersConfig{KeyTTL: userKeyTTL}, runner,
 		vms, lbs, history, locks, logger)
@@ -103,6 +114,7 @@ func main() {
 	handler.RegisterServices(mux, services)
 	handler.RegisterHAProxy(mux, haproxy)
 	handler.RegisterWeb(mux, web)
+	handler.RegisterDNS(mux, dns)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

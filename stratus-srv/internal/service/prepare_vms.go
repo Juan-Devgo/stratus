@@ -19,7 +19,7 @@ type VMView struct {
 	Role             string `json:"role"`  // vm, lb o server (004)
 	LB               string `json:"lb"`    // de un servidor, su balanceador; si no, vacío
 	LBIP             string `json:"lb_ip"` // de un servidor, la IPv4 en puente de su balanceador
-	Kind             string `json:"kind"`  // "", apache o nginx (005): el tipo para el selector
+	Kind             string `json:"kind"`  // "", apache, nginx o dns (005): el tipo para el selector
 }
 
 // ListVMs devuelve las VMs registradas con su estado y su rol (vm, lb o server). Si list-vms.sh
@@ -31,21 +31,14 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 		return nil, "", err
 	}
 	// La topología sale de SQLite: el rol nunca se deduce de VirtualBox (plan, sección 3).
-	lbRows, err := s.lbs.ListLBs(ctx)
+	isLB, serverLB, err := lbTopology(ctx, s.lbs)
 	if err != nil {
 		return nil, "", err
 	}
-	isLB := map[string]bool{}
-	serverLB := map[string]string{} // VM asignada -> su balanceador
-	for _, lb := range lbRows {
-		isLB[lb.Name] = true
-		servers, err := s.lbs.Servers(ctx, lb.Name)
-		if err != nil {
-			return nil, "", err
-		}
-		for _, srv := range servers {
-			serverLB[srv.VM] = lb.Name
-		}
+
+	dnsServer, _, err := s.dns.dnsRepo.Server(ctx)
+	if err != nil {
+		return nil, "", err
 	}
 
 	states, listErr, _ := queryVMStates(ctx, s.runner, s.logger)
@@ -69,6 +62,9 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 			return nil, "", err
 		} else if ok {
 			view.Kind = typ
+		}
+		if row.Name == dnsServer {
+			view.Kind = "dns"
 		}
 		switch {
 		case isLB[row.Name]:
@@ -192,7 +188,8 @@ func (s *PrepareService) StopVM(ctx context.Context, name string) (string, error
 // Reglas del módulo 004 (REQ-6, REQ-12): una VM asignada a un balanceador se rechaza con
 // ErrVMIsServer; un balanceador con servidores, con ErrLBHasServers; y un balanceador sin
 // servidores se elimina con delete-lb.sh, que también quita su red interna. Un servidor web (005)
-// se elimina con WebService.DeleteWeb, que también borra su tipo.
+// se elimina con WebService.DeleteWeb, que también borra su tipo, y el servidor DNS con
+// DNSService.DeleteDNS, que se niega mientras alguna VM lo use como resolvedor.
 func (s *PrepareService) DeleteVM(ctx context.Context, name string) (string, error) {
 	if _, err := s.getVM(ctx, name); err != nil {
 		return "", err
@@ -221,6 +218,16 @@ func (s *PrepareService) DeleteVM(ctx context.Context, name string) (string, err
 		}
 		s.keys.Discard(name)
 		return res.Message, nil
+	}
+	if isDNS, err := s.dns.IsDNSServer(ctx, name); err != nil {
+		return "", err
+	} else if isDNS {
+		msg, err := s.dns.DeleteDNS(ctx)
+		if err != nil {
+			return "", err
+		}
+		s.keys.Discard(name)
+		return msg, nil
 	}
 	deleteRow := func(ctx context.Context) error {
 		s.keys.Discard(name)

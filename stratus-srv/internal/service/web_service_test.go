@@ -22,6 +22,7 @@ const (
 // comparten sus bloqueos, su SQLite temporal y su runner: así se prueban las reglas cruzadas.
 type webEnv struct {
 	svc     *WebService
+	dnsSvc  *DNSService
 	prepare *PrepareService
 	haproxy *HAProxyService
 	vms     *repository.VMRepository
@@ -53,12 +54,14 @@ func newWebEnv(t *testing.T, runner *fakeRunner) webEnv {
 		logs:    &bytes.Buffer{},
 	}
 	logger := log.New(env.logs, "", 0)
-	env.svc = NewWebService(testWebConfig(), runner, env.vms, env.lbs, env.web, env.dns, env.history,
+	env.dnsSvc = NewDNSService(testDNSConfig(), runner, env.vms, env.lbs, env.web, env.dns, env.history,
 		env.locks, logger)
+	env.svc = NewWebService(testWebConfig(), runner, env.vms, env.lbs, env.web, env.dns, env.history,
+		env.locks, env.dnsSvc, logger)
 	env.haproxy = NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
-		runner, env.vms, env.lbs, env.history, env.locks, logger)
+		runner, env.vms, env.lbs, env.dns, env.history, env.locks, logger)
 	env.prepare = NewPrepareService(Config{BaseDisk: testBaseDisk, BridgeAdapter: testBridge, KeyTTL: 10 * time.Minute},
-		runner, env.vms, env.lbs, env.history, env.locks, env.haproxy, env.svc, logger)
+		runner, env.vms, env.lbs, env.history, env.locks, env.haproxy, env.svc, env.dnsSvc, logger)
 	return env
 }
 

@@ -25,7 +25,7 @@
 - [x] T020 Add the optional `missing_msg` argument to `check_archive` in `scripts/services/lib/service-common.sh` (REQ-9, AC-12)
 - [x] T021 Write the AC-18 and AC-20 tests (`unit_action` start and restart run `systemctl`, `sleep 3` and print `active_state=<state>`; stop does not sleep; `unit_status` prints the output and returns 0 when `systemctl status` exits 3) and `assert_script_structure` in `scripts/prepare/lib/systemd-unit.bats` (REQ-12, REQ-39, AC-18, AC-20, AC-56)
 - [x] T022 Implement `unit_action` and `unit_status` with header and numbered sections in `scripts/prepare/lib/systemd-unit.sh` (REQ-12, REQ-39, AC-18, AC-20, AC-56)
-- [ ] T023 Create `setup_web_stubs` and `make_archive` in `scripts/web/test_helper.bash` (REQ-39, AC-55)
+- [x] T023 Create `setup_web_stubs` and `make_archive` in `scripts/web/test_helper.bash` (REQ-39, AC-55)
 - [x] T024 Write the validator tests (name, memory, CPUs, type, unit, base disk, bridge, domain, `--jump`) and the `render_site` tests (nginx `server_name web-a.stratus.lan;`, `default_server`, `root /var/www/html`, `index index.html index.nginx-debian.html`; apache `ServerName` and `DocumentRoot`) in `scripts/web/lib/web-common.bats` (REQ-1, REQ-4, REQ-39, AC-1, AC-4, AC-55, AC-56)
 - [x] T025 Implement `fail`, the validators, `type_unit`, `render_site` and `parse_jump` in `scripts/web/lib/web-common.sh` (REQ-1, REQ-4, REQ-39, AC-1, AC-4, AC-55, AC-56)
 - [x] T026 Create `setup_dns_stubs` (arping, ping, named-checkzone, rndc, current zone and DHCP client answers) in `scripts/dns/test_helper.bash` (REQ-39, AC-55)

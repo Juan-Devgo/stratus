@@ -16,6 +16,13 @@
 #                             lectura responde el siguiente valor de la lista ("-" sin IP; al
 #                             acabarse se repite el último). "startvm" la deja running y el stub de
 #                             stop-vm.sh, poweroff.
+#   resolver_program_file     imprime la ruta del stdin de la llamada a ssh del programa del
+#                             resolvedor (la que lleva "stratus-resolver" en el comando remoto).
+#   run_resolver_program <archivo> <dhclient|dhcpcd|none> <set|unset> <ip>
+#                             ejecuta ese programa en esta máquina sobre la raíz falsa
+#                             "$BATS_TEST_TMPDIR/root" (RROOT): /etc y /usr/lib/dhcpcd se reescriben
+#                             a RROOT y el PATH solo trae las herramientas básicas más un
+#                             dhclient o un dhcpcd vacío, para no depender del equipo.
 #
 # Variables que dejan las funciones:
 #   DNS_DIR   scripts/dns original (para assert_script_structure)
@@ -60,7 +67,7 @@ setup_dns_stubs() {
   for cmd in arping ping; do
     {
       echo '#!/usr/bin/env bash'
-      printf 'printf "%%s\\n" "%s${*:+ $*}" >>%q\n' "$cmd" "$tmp/calls.log"
+      printf 'printf "%%s\n" "%s${*:+ $*}" >>%q\n' "$cmd" "$tmp/calls.log"
       printf 'var=%s\n' "$(tr 'a-z' 'A-Z' <<<"$cmd")"
       # shellcheck disable=SC2016 # se expande en el stub
       echo '[[ "${!var:-none}" == reply ]]'
@@ -147,7 +154,7 @@ stub_dns_vm() {
   done
   stub_command VBoxManage "if [[ \"\$1\" == startvm && \"\${2:-}\" == \"$vm\" ]]; then echo running >'$tmp/state-$vm'; : >'$tmp/started-$vm'; exit 0; fi
 if [[ \"\$1\" == showvminfo && \"\${2:-}\" == \"$vm\" ]]; then
-  printf 'VMState=\"%s\"\\nnic1=\"bridged\"\\nmacaddress1=\"080027EEEEEE\"\\nnic2=\"none\"\\n' \"\$(cat '$tmp/state-$vm' 2>/dev/null || echo running)\"
+  printf 'VMState=\"%s\"\nnic1=\"bridged\"\nmacaddress1=\"080027EEEEEE\"\nnic2=\"none\"\n' \"\$(cat '$tmp/state-$vm' 2>/dev/null || echo running)\"
   exit 0
 fi
 if [[ \"\$1 \${2:-}\" == \"guestproperty get\" && \"\${3:-}\" == \"$vm\" && \"\${4:-}\" == /VirtualBox/GuestInfo/Net/0/V4/IP ]]; then
@@ -162,4 +169,29 @@ if [[ \"\$1 \${2:-}\" == \"guestproperty get\" && \"\${3:-}\" == \"$vm\" && \"\$
   fi
   exit 0
 fi"
+}
+
+# resolver_program_file
+resolver_program_file() {
+  local n
+  n="$(grep -n -m1 'stratus-resolver' "$BATS_TEST_TMPDIR/remote.log" | cut -d: -f1)"
+  [[ -n "$n" ]] || { echo "no hubo llamada con stratus-resolver" >&2; return 1; }
+  echo "$BATS_TEST_TMPDIR/stdin/$n"
+}
+
+# run_resolver_program <archivo> <dhclient|dhcpcd|none> <set|unset> <ip>
+run_resolver_program() {
+  local file="$1" client="$2" tmp="$BATS_TEST_TMPDIR" tool
+  RROOT="$tmp/root"
+  mkdir -p "$RROOT/etc/dhcp" "$tmp/rbin"
+  for tool in sh sed grep cat mv rm mkdir head chmod mktemp cp; do
+    ln -sf "$(command -v "$tool")" "$tmp/rbin/$tool"
+  done
+  rm -f "$tmp/rbin/dhclient" "$tmp/rbin/dhcpcd"
+  if [[ "$client" != none ]]; then
+    printf '#!/bin/sh\n' >"$tmp/rbin/$client"
+    chmod +x "$tmp/rbin/$client"
+  fi
+  sed -e "s#/etc/#$RROOT/etc/#g" -e "s#/usr/lib/dhcpcd/#$RROOT/usr/lib/dhcpcd/#g" "$file" >"$tmp/resolver.sh"
+  PATH="$tmp/rbin" sh "$tmp/resolver.sh" stratus-resolver "$3" "$4"
 }

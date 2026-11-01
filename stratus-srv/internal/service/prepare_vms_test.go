@@ -1231,3 +1231,31 @@ func TestAC38_StartWithDNSOffWarns(t *testing.T) {
 		}
 	})
 }
+
+// AC-44, REQ-33: eliminar una VM que usaba el servidor DNS como resolvedor borra su marca, y después
+// el servidor DNS se puede eliminar.
+func TestAC44_DeleteVMClearsResolver(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	ctx := context.Background()
+	if err := env.dns.SetResolver(ctx, "vm1", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.svc.DeleteDNS(ctx); err == nil {
+		t.Fatal("DeleteDNS con un resolvedor debía rechazarse")
+	}
+
+	res, err := env.prepare.DeleteVM(ctx, "vm1")
+
+	if err != nil || res.Warning != "" {
+		t.Fatalf("DeleteVM = %+v, %v", res, err)
+	}
+	if got, _ := env.dns.Resolvers(ctx); len(got) != 0 {
+		t.Errorf("resolvedores = %v, se esperaba vacío", got)
+	}
+	if _, err := env.svc.DeleteDNS(ctx); err != nil {
+		t.Fatalf("DeleteDNS: %v", err)
+	}
+	if calls := runner.callsTo("prepare/delete-vm.sh"); len(calls) != 2 || calls[1].Args[0] != "dns1" {
+		t.Errorf("delete-vm.sh = %+v, se esperaba vm1 y luego dns1", calls)
+	}
+}

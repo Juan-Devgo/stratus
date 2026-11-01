@@ -101,6 +101,25 @@ func RegisterDNS(mux *http.ServeMux, svc *service.DNSService) {
 		writeJSON(w, http.StatusOK, messageBody{msg})
 	})
 
+	// Usar o dejar de usar el servidor DNS como resolvedor de la VM (REQ-31).
+	mux.HandleFunc("PUT /api/dns/resolvers/{vm}", func(w http.ResponseWriter, r *http.Request) {
+		msg, err := svc.SetResolver(r.Context(), r.PathValue("vm"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
+	mux.HandleFunc("DELETE /api/dns/resolvers/{vm}", func(w http.ResponseWriter, r *http.Request) {
+		msg, err := svc.UnsetResolver(r.Context(), r.PathValue("vm"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
 	// Últimas 50 operaciones del módulo, la más reciente primero (REQ-36).
 	mux.HandleFunc("GET /api/dns/history", historyHandler(svc.History))
 }

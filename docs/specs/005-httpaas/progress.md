@@ -47,3 +47,10 @@
 - Decisions: `RefreshVM` is a no-op without DNS server, without record, or for the DNS server itself; `RefreshAll` waits for every record VM (`-` if none). Hook rejections (lock, config) go to `recordRejected` like Phase 7. `Refresh` message: "Registros actualizados" / "Registros sin cambios".
 - Decisions: `AssignServer`/`RemoveServer` split into private `assignServer`/`removeServer` + `afterServerChange` (hook after unlock), returning `ActionResult`; handlers write `{message, warning?}`.
 - Notes: the REQ-26 warning names the started/assigned VM, also for the DNS server start; joined to the 004 warning with `\n`. Test helper `fakeRunner.scriptOrder()` lives in `prepare_vms_test.go`.
+
+## Phase 9: DNS server as resolver (US-7)
+- Files: `scripts/dns/{set,unset}-resolver.{sh,bats}`, `scripts/dns/lib/dns-common.sh` (section 8 `resolver_program`), `scripts/dns/test_helper.bash` (`resolver_program_file`, `run_resolver_program`); `service/dns_resolvers{,_test}.go`, `prepare_vms_test.go`; `handler/dns{,_test}.go`.
+- Decisions: one POSIX sh program sent by stdin (`vm_exec <vm> sh -s stratus-resolver <set|unset> <ip>`, root over ssh, no sudo). dhclient block = marker line + `prepend` line (removed with `sed '/^# stratus-resolver$/,+1d'`); dhcpcd hook prepends only when not first. Remote "no client" exits 3, which `vm_exec` turns into 5.
+- Decisions: bats run the captured program on a fake root (paths rewritten, PATH limited to basic tools plus an empty dhclient/dhcpcd), so the files it writes are checked without a VM.
+- Decisions: `SetResolver`/`UnsetResolver` need the DNS server and valid config, a registered VM that is not the DNS server ("El servidor DNS no puede ser su propio resolvedor"); `targetArgs` adds `--jump`; lock = target VM; exit 7/12 keep the generic 001/004 texts (no `mapDNSError`).
+- Notes: T109 passed at once: `AfterVMDeleted` (Phase 7) already clears the flag. Routes `PUT`/`DELETE /api/dns/resolvers/{vm}` reply `{message}`.

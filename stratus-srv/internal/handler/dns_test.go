@@ -238,3 +238,36 @@ func TestAC39_RefreshRoute(t *testing.T) {
 		t.Errorf("operation = %v, se esperaba refresh_records", op["operation"])
 	}
 }
+
+// AC-42: PUT /api/dns/resolvers/{vm} usa el servidor DNS como resolvedor y DELETE lo quita; una
+// VM apagada responde 409 con el texto de 001.
+func TestAC42_ResolverRoutes(t *testing.T) {
+	runner := &fakeRunner{results: map[string]service.RunResult{}}
+	ts := newTestServerWithLBs(t, runner)
+	ts.registerDNSServer(t, "dns1")
+	if _, err := ts.vms.Insert(context.Background(), "vm1"); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPut, ts.URL+"/api/dns/resolvers/vm1", "")
+
+	if status != http.StatusOK || body["message"] != "Resolvedor DNS 192.168.1.53 configurado en vm1" {
+		t.Errorf("PUT: status = %d, body = %v", status, body)
+	}
+	if got, _ := ts.dns.Resolvers(context.Background()); len(got) != 1 {
+		t.Errorf("resolvedores = %v, se esperaba vm1", got)
+	}
+
+	status, body = do(t, http.MethodDelete, ts.URL+"/api/dns/resolvers/vm1", "")
+
+	if status != http.StatusOK || body["message"] != "Resolvedor DNS 192.168.1.53 quitado de vm1" {
+		t.Errorf("DELETE: status = %d, body = %v", status, body)
+	}
+
+	runner.results["dns/set-resolver.sh"] = service.RunResult{ExitCode: 7}
+	status, body = do(t, http.MethodPut, ts.URL+"/api/dns/resolvers/vm1", "")
+
+	if status != http.StatusConflict || body["error"] != "La VM no tiene dirección IP; verifique que esté encendida" {
+		t.Errorf("apagada: status = %d, body = %v", status, body)
+	}
+}

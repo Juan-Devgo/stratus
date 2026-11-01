@@ -197,6 +197,17 @@ setup() {
   [ "$status" -eq 11 ]
 }
 
+@test "005 AC-12 check_archive con un tercer argumento imprime ese mensaje si falta la entrada" {
+  make_archive "$ARCHIVE" css/estilo.css
+  run --separate-stderr check_archive "$ARCHIVE" index.html "El archivo debe contener index.html en la raíz"
+  [ "$status" -eq 11 ]
+  [ "$stderr" = "El archivo debe contener index.html en la raíz" ]
+
+  make_archive "$ARCHIVE" index.html css/estilo.css
+  run check_archive "$ARCHIVE" index.html "El archivo debe contener index.html en la raíz"
+  [ "$status" -eq 0 ]
+}
+
 # --- render_unit (REQ-11) ---
 
 @test "AC-2 render_unit imprime la marca y exactamente las líneas de REQ-11" {

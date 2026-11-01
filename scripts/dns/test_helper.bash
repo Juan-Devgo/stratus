@@ -1,0 +1,122 @@
+# Utilidades compartidas por las pruebas bats de scripts/dns (005).
+# Uso en cada archivo .bats:
+#   load test_helper          (los de lib/ usan: load ../test_helper)
+#
+# Carga el helper de scripts/web (y con él el de scripts/prepare) y el de scripts/haproxy por
+# stub_ip_sequence, set_vm_state y stub_vm_power.
+#
+# Funciones:
+#   setup_dns_stubs           como setup_web_stubs, con la copia de scripts/dns ("$DX"), el stub de
+#                             ../prepare/stop-vm.sh y stubs de arping y ping (ver abajo).
+#   hide_arping               deja el PATH sin ningún arping (ni el stub ni el del equipo), para
+#                             probar "arping no está instalado en el host".
+#
+# Variables que dejan las funciones:
+#   DNS_DIR   scripts/dns original (para assert_script_structure)
+#   DX        scripts/dns de la copia; "$DX/../prepare" es la copia de prepare
+#
+# Archivos que deja el stub de ssh en "$BATS_TEST_TMPDIR": calls.log, remote.log y stdin/<n>,
+# como en scripts/web.
+#
+# Variables de entorno que leen los stubs:
+#   ARPING=reply|none     arping responde (sale con 0) o no (sale con 1); por defecto none.
+#   PING=reply|none       ping responde o no; por defecto none.
+#   FAIL_REMOTE, FAIL_RESTORE, ACTIVE_STATE, STATUS_OUT   como en scripts/web.
+#   ZONE_CHECK=ok|fail    named-checkzone (por defecto ok); fail imprime el error y sale con 1.
+#   CONF_CHECK=ok|fail    named-checkconf (por defecto ok).
+#   RNDC=ok|fail          "rndc reload": fail hace fallar SOLO la primera recarga (la de la
+#                         restauración funciona); failall las hace fallar todas.
+#   CURRENT_ZONE=<texto>  salida de "cat /var/lib/bind/db.*" (la zona actual); sin definir, el
+#                         archivo no existe y cat sale con 1.
+#   DHCP_CLIENT=dhclient|dhcpcd|none
+#                         cliente DHCP del invitado para los programas del resolvedor: con none
+#                         el programa remoto sale con 3 (por defecto dhclient).
+#   DIG_OUT=<texto>       salida de dig (por defecto la IP del servidor DNS, 192.168.1.53).
+
+# Directorio de los scripts del módulo (donde vive este helper).
+DNS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=../web/test_helper.bash
+source "$DNS_DIR/../web/test_helper.bash"
+# shellcheck source=../haproxy/test_helper.bash
+source "$DNS_DIR/../haproxy/test_helper.bash"
+
+# setup_dns_stubs
+setup_dns_stubs() {
+  setup_stubs
+  local tmp="$BATS_TEST_TMPDIR" cmd
+  _copy_scripts "$tmp" "$DNS_DIR"
+  # dns-common.sh carga web-common.sh.
+  cp -R "$WEB_DIR" "$tmp/scripts/web"
+  DX="$tmp/scripts/dns"
+
+  for cmd in arping ping; do
+    {
+      echo '#!/usr/bin/env bash'
+      printf 'printf "%%s\\n" "%s${*:+ $*}" >>%q\n' "$cmd" "$tmp/calls.log"
+      printf 'var=%s\n' "$(tr 'a-z' 'A-Z' <<<"$cmd")"
+      # shellcheck disable=SC2016 # se expande en el stub
+      echo '[[ "${!var:-none}" == reply ]]'
+    } >"$tmp/bin/$cmd"
+    chmod +x "$tmp/bin/$cmd"
+  done
+
+  {
+    _ssh_stub_head "$tmp"
+    cat <<'STUB'
+if [[ "$flat" == *"named-checkzone"* ]]; then
+  if [[ "${ZONE_CHECK:-ok}" == fail ]]; then
+    echo "zone stratus.lan/IN: loading from master file db.stratus.lan.new failed: bad owner name"
+    exit 1
+  fi
+  echo "zone stratus.lan/IN: loaded serial 1"
+  echo "OK"
+  exit 0
+fi
+if [[ "$flat" == *"named-checkconf"* ]]; then
+  [[ "${CONF_CHECK:-ok}" == ok ]]
+  exit $?
+fi
+if [[ "$flat" == *"rndc reload"* ]]; then
+  case "${RNDC:-ok}" in
+    failall) echo "rndc: 'reload' failed: failure" >&2; exit 1 ;;
+    fail)
+      if [[ ! -e "$tmp/rndc-failed" ]]; then
+        : >"$tmp/rndc-failed"
+        echo "rndc: 'reload' failed: failure" >&2
+        exit 1
+      fi
+      ;;
+  esac
+  exit 0
+fi
+if [[ "$flat" == "cat /var/lib/bind/db."* ]]; then
+  [[ -n "${CURRENT_ZONE+x}" ]] || exit 1
+  printf '%s\n' "$CURRENT_ZONE"
+  exit 0
+fi
+if [[ "$flat" == *"stratus-resolver"* && "${DHCP_CLIENT:-dhclient}" == none ]]; then
+  echo "No se encontró un cliente DHCP compatible" >&2
+  exit 3
+fi
+if [[ "$flat" == dig* || "$flat" == *" dig "* ]]; then
+  printf '%s\n' "${DIG_OUT:-192.168.1.53}"
+  exit 0
+fi
+STUB
+    _ssh_stub_units
+    echo 'exit 0'
+  } >>"$tmp/bin/ssh"
+}
+
+# hide_arping
+# Arma "$BATS_TEST_TMPDIR/sys" con enlaces a todo /usr/bin menos arping y deja el PATH en el
+# directorio de stubs (sin el stub de arping) más ese directorio.
+hide_arping() {
+  local tmp="$BATS_TEST_TMPDIR"
+  rm -f "$tmp/bin/arping"
+  mkdir -p "$tmp/sys"
+  ln -sf /usr/bin/* "$tmp/sys/" 2>/dev/null || true
+  rm -f "$tmp/sys/arping"
+  export PATH="$tmp/bin:$tmp/sys"
+}

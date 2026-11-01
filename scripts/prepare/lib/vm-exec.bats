@@ -211,3 +211,56 @@ if [[ "$1 ${2:-}" == "guestproperty get" ]]; then echo "Value: 192.168.1.50"; ex
   run vm_route web-a web-a
   [ "$status" -eq 2 ]
 }
+
+@test "005 AC-16 vm_scp copia directo con la llave del backend y HostKeyAlias=<vm>" {
+  stub_vm_ip web-a 192.168.1.40
+  : >"$BATS_TEST_TMPDIR/pagina.tar.gz"
+
+  run vm_scp web-a "$BATS_TEST_TMPDIR/pagina.tar.gz" /var/tmp/stratus-page.tar.gz
+
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^scp ' "$CALLS")" -eq 1 ]
+  scp_line="$(grep -E '^scp ' "$CALLS")"
+  [[ "$scp_line" == "scp -i $APP_SSH_KEY_PATH -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$APP_SSH_KEY_PATH.known_hosts -o HostKeyAlias=web-a $BATS_TEST_TMPDIR/pagina.tar.gz root@192.168.1.40:/var/tmp/stratus-page.tar.gz" ]]
+  ! grep -qE '^ssh ' "$CALLS" || return 1
+}
+
+@test "005 AC-16 vm_scp con ruta pasa por jump@IP del balanceador con ProxyCommand" {
+  stub_vm_nics lb1 running 080027CCCCCC 192.168.1.60 080027DDDDDD -
+  stub_vm_nics web-a running 080027AAAAAA 10.10.1.11 080027BBBBBB 10.0.3.15
+  vm_route web-a lb1
+
+  run vm_scp web-a /tmp/a.tar.gz /var/tmp/stratus-page.tar.gz
+
+  [ "$status" -eq 0 ]
+  scp_line="$(grep -E '^scp ' "$CALLS")"
+  proxy="ProxyCommand=ssh -i $APP_SSH_KEY_PATH -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$APP_SSH_KEY_PATH.known_hosts -o HostKeyAlias=lb1 -W %h:%p jump@192.168.1.60"
+  [[ "$scp_line" == *"$proxy"* ]]
+  [[ "$scp_line" == *"-o HostKeyAlias=web-a /tmp/a.tar.gz root@10.10.1.11:/var/tmp/stratus-page.tar.gz" ]]
+}
+
+@test "005 AC-16 vm_scp devuelve 7 sin IP y 12 con el balanceador apagado, sin llamar a scp" {
+  stub_vm_ip vm1 -
+  run --separate-stderr vm_scp vm1 /tmp/a.tar.gz /var/tmp/x
+  [ "$status" -eq 7 ]
+  [[ "$stderr" == *"La VM no tiene dirección IP; verifique que esté encendida"* ]]
+
+  setup_stubs
+  stub_vm_nics lb1 poweroff 080027CCCCCC 192.168.1.60 080027DDDDDD -
+  stub_vm_nics web-a running 080027AAAAAA 10.10.1.11 080027BBBBBB 10.0.3.15
+  vm_route web-a lb1
+  run --separate-stderr vm_scp web-a /tmp/a.tar.gz /var/tmp/x
+  [ "$status" -eq 12 ]
+  [[ "$stderr" == *"El balanceador lb1 está apagado"* ]]
+  ! grep -qE '^scp ' "$CALLS" || return 1
+}
+
+@test "005 AC-16 vm_scp devuelve 4 si scp falla y 2 con argumentos inválidos" {
+  stub_vm_ip web-a 192.168.1.40
+  stub_command scp 'exit 1'
+  run --separate-stderr vm_scp web-a /tmp/a.tar.gz /var/tmp/x
+  [ "$status" -eq 4 ]
+
+  run vm_scp web-a /tmp/a.tar.gz
+  [ "$status" -eq 2 ]
+}

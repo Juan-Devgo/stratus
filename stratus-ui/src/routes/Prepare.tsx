@@ -2,16 +2,20 @@ import { CircleAlertIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, getCatalog, getHistory, listVms } from "@/features/prepare/api";
-import { CreateVmForm } from "@/features/prepare/CreateVmForm";
+import { ApiError, createVm, getCatalog, getHistory, listVms } from "@/features/prepare/api";
+import { CreateVmDialog } from "@/features/prepare/CreateVmDialog";
+import { CreateVmStatus } from "@/features/prepare/CreateVmStatus";
 import { HistoryTable } from "@/features/prepare/HistoryTable";
 import { HostnameForm } from "@/features/prepare/HostnameForm";
 import { IssueForm } from "@/features/prepare/IssueForm";
 import { PackageForm } from "@/features/prepare/PackageForm";
 import type { OperationRow, Vm } from "@/features/prepare/types";
+import { useOperation } from "@/features/prepare/useOperation";
 import { UserKeyForm } from "@/features/prepare/UserKeyForm";
 import { VmActions } from "@/features/prepare/VmActions";
+import type { CreateVmInput } from "@/features/prepare/validation";
 import { VmSelector } from "@/features/prepare/VmSelector";
 
 // Pantalla del módulo "Preparar sistema": la VM seleccionada es el objetivo de cada operación.
@@ -22,6 +26,10 @@ export function Prepare() {
   const [catalog, setCatalog] = useState<string[]>([]);
   const [history, setHistory] = useState<OperationRow[]>([]);
   const [historyError, setHistoryError] = useState("");
+  // La creación vive aquí y no en el diálogo: sigue visible si el usuario lo cierra.
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creatingName, setCreatingName] = useState<string | null>(null);
+  const creation = useOperation();
 
   // Recarga la lista de VMs y el historial; cada formulario la llama al terminar (onDone)
   // para reflejar el nuevo estado y la operación recién registrada.
@@ -58,6 +66,12 @@ export function Prepare() {
       .catch(() => setCatalog([]));
   }, []);
 
+  async function handleCreate(input: CreateVmInput) {
+    setCreatingName(input.name);
+    await creation.run(() => createVm(input));
+    await reload();
+  }
+
   // Si la VM seleccionada se eliminó, deja de estar seleccionada.
   const vm = vms.find((item) => item.name === selectedVm) ?? null;
 
@@ -75,6 +89,25 @@ export function Prepare() {
           <AlertDescription>{listError}</AlertDescription>
         </Alert>
       )}
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Crear VM</h2>
+        <div className="flex flex-col items-start gap-3">
+          <Button onClick={() => setCreateOpen(true)} disabled={creation.pending}>
+            Crear VM
+          </Button>
+          <CreateVmStatus name={creatingName} pending={creation.pending} result={creation.result} />
+        </div>
+        <CreateVmDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          pending={creation.pending}
+          result={creation.result}
+          onSubmit={handleCreate}
+        />
+      </section>
+
+      <h2 className="text-lg font-semibold">Operaciones sobre la VM</h2>
 
       <Card>
         <CardHeader>
@@ -126,19 +159,6 @@ export function Prepare() {
         </CardHeader>
         <CardContent>
           <HostnameForm vm={vm} onDone={reload} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Crear VM</CardTitle>
-          <CardDescription>
-            Crea un clon de Debian 13 sobre el disco base compartido (disco diferencial, red en puente, IP por DHCP) y
-            lo prepara para el acceso por SSH. Puede tardar varios minutos.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CreateVmForm onDone={reload} />
         </CardContent>
       </Card>
 

@@ -6,11 +6,11 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 
-import { createVm } from "./api";
-import { useOperation } from "./useOperation";
+import type { OperationOutcome } from "./useOperation";
 import { createVmErrors, type CreateVmErrors, type CreateVmInput } from "./validation";
 
-type Props = { onDone(): void };
+// El estado de la operación vive en quien usa el formulario: sobrevive a cerrar el diálogo.
+type Props = { pending: boolean; result: OperationOutcome | null; onSubmit(input: CreateVmInput): void };
 
 // Campos del formulario; los numéricos se guardan como texto y se convierten al enviar.
 const FIELDS: { key: keyof CreateVmInput; label: string; type: "text" | "number"; placeholder?: string }[] = [
@@ -21,12 +21,11 @@ const FIELDS: { key: keyof CreateVmInput; label: string; type: "text" | "number"
 
 const INITIAL: Record<keyof CreateVmInput, string> = { name: "", memory_mb: "2048", cpus: "2" };
 
-export function CreateVmForm({ onDone }: Props) {
+export function CreateVmForm({ pending, result, onSubmit }: Props) {
   const [values, setValues] = useState(INITIAL);
   const [errors, setErrors] = useState<CreateVmErrors>({});
-  const { pending, result, run } = useOperation();
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input: CreateVmInput = {
       name: values.name,
@@ -38,8 +37,7 @@ export function CreateVmForm({ onDone }: Props) {
     if (Object.keys(found).length > 0) {
       return;
     }
-    await run(() => createVm(input));
-    onDone();
+    onSubmit(input);
   }
 
   return (

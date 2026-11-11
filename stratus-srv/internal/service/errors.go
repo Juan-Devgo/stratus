@@ -142,6 +142,8 @@ var (
 	ErrIndexMissing          = errors.New("El archivo debe contener index.html en la raíz")
 	ErrPackageBlocked        = errors.New("paquete protegido")
 	ErrVMNotOnLAN            = errors.New("La VM no tiene una dirección en la LAN")
+	// Leer la zona con el servidor DNS apagado (REQ-49); ErrDNSOff habla de cambiar registros.
+	ErrDNSOffZone = errors.New("El servidor DNS está apagado; enciéndalo para ver la zona")
 )
 
 // ServerRecordError indica que la VM es servidor de un balanceador y por eso no tiene registro

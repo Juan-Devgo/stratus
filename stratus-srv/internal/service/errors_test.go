@@ -127,6 +127,7 @@ func TestAC23_HTTPaaSSentinelTexts(t *testing.T) {
 		{ErrDNSConfigIncomplete, "Configuración de DNS incompleta"},
 		{ErrDNSIPInUse, "La IP del servidor DNS ya está en uso"},
 		{ErrDNSOff, "El servidor DNS está apagado; enciéndalo para cambiar los registros"},
+		{ErrDNSOffZone, "El servidor DNS está apagado; enciéndalo para ver la zona"},
 		{ErrZoneInvalid, "Zona DNS inválida; se mantuvo la anterior"},
 		{ErrRecordExists, "La VM ya tiene un registro DNS"},
 		{ErrIndexMissing, "El archivo debe contener index.html en la raíz"},

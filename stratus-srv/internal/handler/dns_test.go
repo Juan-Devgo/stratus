@@ -258,3 +258,36 @@ func TestNoResolverRoutes(t *testing.T) {
 		t.Errorf("el runner se llamó %d veces, se esperaba 0", n)
 	}
 }
+
+// AC-66: GET /api/dns/zone devuelve los registros que sirve el servidor DNS; apagado, 409 con el
+// texto de REQ-49.
+func TestAC66_ZoneRoute(t *testing.T) {
+	const out = "NS\tstratus.lan\t60\tdns1.stratus.lan.\nA\tdns1.stratus.lan\t60\t192.168.1.53\n"
+	runner := &fakeRunner{results: map[string]service.RunResult{"dns/show-zone.sh": {Stdout: []byte(out)}}}
+	ts := newTestServerWithLBs(t, runner)
+	ts.registerDNSServer(t, "dns1")
+
+	status, body := do(t, http.MethodGet, ts.URL+"/api/dns/zone", "")
+
+	records, _ := body["records"].([]any)
+	if status != http.StatusOK || len(records) != 2 {
+		t.Fatalf("status = %d, body = %v; se esperaba 200 con 2 registros", status, body)
+	}
+	first, _ := records[1].(map[string]any)
+	want := map[string]any{"type": "A", "name": "dns1.stratus.lan", "value": "192.168.1.53", "ttl": float64(60)}
+	for k, v := range want {
+		if first[k] != v {
+			t.Errorf("records[1].%s = %v, se esperaba %v", k, first[k], v)
+		}
+	}
+
+	runner.mu.Lock()
+	runner.results["dns/show-zone.sh"] = service.RunResult{ExitCode: 7}
+	runner.mu.Unlock()
+
+	status, body = do(t, http.MethodGet, ts.URL+"/api/dns/zone", "")
+
+	if status != http.StatusConflict || body["error"] != "El servidor DNS está apagado; enciéndalo para ver la zona" {
+		t.Errorf("apagado: status = %d, body = %v", status, body)
+	}
+}

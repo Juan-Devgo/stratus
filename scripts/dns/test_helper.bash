@@ -32,6 +32,8 @@
 #   CONF_CHECK=ok|fail    named-checkconf (por defecto ok).
 #   RNDC=ok|fail          "rndc reload": fail hace fallar SOLO la primera recarga (la de la
 #                         restauración funciona); failall las hace fallar todas.
+#   ZONE_DUMP=<texto>     salida de "named-checkzone -D" (show-zone.sh); sin definir, esa
+#                         llamada responde como cualquier named-checkzone (ZONE_CHECK).
 #   CURRENT_ZONE=<texto>  salida de "cat /var/lib/bind/db.*" (la zona actual); sin definir, el
 #                         archivo no existe y cat sale con 1.
 #   DIG_OUT=<texto>       salida de dig (por defecto la IP del servidor DNS, 192.168.1.53).
@@ -68,6 +70,10 @@ setup_dns_stubs() {
   {
     _ssh_stub_head "$tmp"
     cat <<'STUB'
+if [[ "$flat" == *"named-checkzone -D"* && -n "${ZONE_DUMP+x}" ]]; then
+  printf '%s\n' "$ZONE_DUMP"
+  exit 0
+fi
 if [[ "$flat" == *"named-checkzone"* ]]; then
   if [[ "${ZONE_CHECK:-ok}" == fail ]]; then
     echo "zone stratus.lan/IN: loading from master file db.stratus.lan.new failed: bad owner name"

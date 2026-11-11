@@ -105,6 +105,7 @@ func TestAC23_AC29_AC35_AC41_WriteErrorMapsHTTPaaSErrors(t *testing.T) {
 		{"configuración incompleta", service.ErrDNSConfigIncomplete, http.StatusConflict, "Configuración de DNS incompleta"},
 		{"IP en uso", service.ErrDNSIPInUse, http.StatusConflict, "La IP del servidor DNS ya está en uso"},
 		{"DNS apagado", fmt.Errorf("add_records: %w", service.ErrDNSOff), http.StatusConflict, "El servidor DNS está apagado; enciéndalo para cambiar los registros"},
+		{"DNS apagado al leer la zona", fmt.Errorf("show_zone: %w", service.ErrDNSOffZone), http.StatusConflict, "El servidor DNS está apagado; enciéndalo para ver la zona"},
 		{"registro existente", service.ErrRecordExists, http.StatusConflict, "La VM ya tiene un registro DNS"},
 		{"sin index.html", service.ErrIndexMissing, http.StatusUnprocessableEntity, "El archivo debe contener index.html en la raíz"},
 		{"zona inválida", service.ErrZoneInvalid, http.StatusInternalServerError, "Zona DNS inválida; se mantuvo la anterior"},

@@ -62,6 +62,18 @@ func RegisterDNS(mux *http.ServeMux, svc *service.DNSService) {
 		}{output})
 	})
 
+	// Registros que sirve el servidor DNS, leídos de su archivo de zona (REQ-46).
+	mux.HandleFunc("GET /api/dns/zone", func(w http.ResponseWriter, r *http.Request) {
+		records, err := svc.Zone(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Records []service.ZoneRecord `json:"records"`
+		}{records})
+	})
+
 	// Agrega los registros A de las VMs elegidas (REQ-23): 200 con el resultado de cada una o, si no
 	// se agregó ninguna, el error de la primera rechazada.
 	mux.HandleFunc("POST /api/dns/records", func(w http.ResponseWriter, r *http.Request) {

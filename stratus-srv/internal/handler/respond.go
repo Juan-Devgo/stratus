@@ -71,6 +71,7 @@ var sentinelStatus = []struct {
 	{service.ErrDNSConfigIncomplete, http.StatusConflict, service.ErrDNSConfigIncomplete.Error()},
 	{service.ErrDNSIPInUse, http.StatusConflict, service.ErrDNSIPInUse.Error()},
 	{service.ErrDNSOff, http.StatusConflict, service.ErrDNSOff.Error()},
+	{service.ErrDNSOffZone, http.StatusConflict, service.ErrDNSOffZone.Error()},
 	{service.ErrRecordExists, http.StatusConflict, service.ErrRecordExists.Error()},
 	{service.ErrVMNotOnLAN, http.StatusConflict, service.ErrVMNotOnLAN.Error()},
 	{service.ErrIndexMissing, http.StatusUnprocessableEntity, service.ErrIndexMissing.Error()},

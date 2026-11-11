@@ -120,3 +120,8 @@
 - Decisions: the schema runs `DROP TABLE IF EXISTS dns_resolvers` (TestOpenDropsDNSResolvers). TestNoResolverRoutes accepts 404 or 405 for `PUT`/`DELETE /api/dns/resolvers/vm1`. The DNS screen and home card texts no longer mention the resolver; the records card is titled "Registros". The AC-29 panel test now uses a generic 409 text.
 - Notes: gofmt clean, golangci-lint 0 issues, `go test ./...` ok, `bats -r -j 8 scripts/dns/` 84 ok, UI typecheck, 269 tests and build ok. VMs whose resolver was set before the upgrade keep their guest configuration (out of scope, plan section 9).
 
+
+## Phase 22: Amendment 2026-11-11: zone read script and backend
+- Files: `scripts/dns/show-zone.{sh,bats}`, `scripts/dns/test_helper.bash` (`ZONE_DUMP`); `service/{errors,dns_zone}.go` + tests; `handler/{dns,respond}.go` + tests. The amended docs went in their own commit (T215).
+- Decisions: `show-zone.sh` reads with `named-checkzone -D -o -` and filters with `awk` on the host (third field `IN`, numeric TTL), so "loaded serial"/"OK" lines never reach the backend. `Zone` returns `[]` (never nil) for an empty zone. A malformed line is an error, not a partial zone. `ErrDNSOffZone` is a separate sentinel because `ErrDNSOff` talks about changing records.
+- Notes: the exit-7 and exit-3 bats rebuild the stubs first (stub answers are appended, the first match wins). shellcheck is not installed on this host. `bats -r -j 8 scripts/dns/` 90 ok; gofmt clean, golangci-lint 0 issues, `go test ./...` ok.

@@ -4,13 +4,14 @@
 # con named-checkzone y recarga bind9; una zona rechazada deja la anterior (REQ-28, REQ-29).
 #
 # Uso:
-#   add-records.sh <dns> <domain> <dns_ip> <record...>
+#   add-records.sh <dns> <domain> <dns_cidr> <record...>
 #
 # Argumentos:
-#   dns     nombre del servidor DNS, ^[a-z0-9][a-z0-9-]{0,31}$
-#   domain  zona: 1-4 etiquetas ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ unidas por puntos
-#   dns_ip  IPv4 del servidor DNS (su propio registro A)
-#   record  registro "<vm>,<ipv4>"; al menos uno, hasta 200, sin repetir VMs ni el servidor DNS
+#   dns       nombre del servidor DNS, ^[a-z0-9][a-z0-9-]{0,31}$
+#   domain    zona: 1-4 etiquetas ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ unidas por puntos
+#   dns_cidr  IPv4/prefijo (8-30) del servidor DNS (APP_DNS_IP): su IPv4 es su propio registro A
+#             y su subred es la LAN de los registros
+#   record    registro "<vm>,<ipv4>"; al menos uno, hasta 200, sin repetir VMs ni el servidor DNS
 #
 # Variables de entorno:
 #   APP_SSH_KEY_PATH  llave privada del backend
@@ -41,24 +42,24 @@ source "$scripts_dir/dns/lib/dns-common.sh"
 
 # == 1. Validar argumentos ==
 # 1.1 Exigir al menos 4 argumentos; si no, imprimir el uso en stderr y salir con 2.
-# 1.2 dns, domain, dns_ip y los registros contra sus listas permitidas, y APP_SSH_KEY_PATH
-#     definida; si no, salir con 2.
+# 1.2 dns, domain, dns_cidr y los registros contra sus listas permitidas, cada registro dentro de la
+#     subred de dns_cidr (REQ-22) y APP_SSH_KEY_PATH definida; si no, salir con 2.
 # Ninguna validación fallida llama a VBoxManage ni a ssh.
 
 if (($# < 4)); then
-  fail 2 "Uso: add-records.sh <dns> <domain> <dns_ip> <record...>"
+  fail 2 "Uso: add-records.sh <dns> <domain> <dns_cidr> <record...>"
 fi
 dns="$1"
 domain="$2"
-dns_ip="$3"
+dns_cidr="$3"
 shift 3
 
 validate_vm_name "$dns" || exit 2
 validate_domain "$domain" || exit 2
-if [[ ! "$dns_ip" =~ $_IPV4_RE ]]; then
-  fail 2 "IP del servidor DNS inválida"
-fi
+validate_cidr "$dns_cidr" || exit 2
+dns_ip="${dns_cidr%/*}"
 validate_records "$dns" "$@" || exit 2
+validate_lan_records "$dns_cidr" "$@" || exit 2
 if [[ -z "${APP_SSH_KEY_PATH:-}" ]]; then
   fail 2 "Falta la variable de entorno APP_SSH_KEY_PATH"
 fi

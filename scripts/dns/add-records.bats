@@ -27,7 +27,7 @@ zone_upload() {
 }
 
 @test "AC-30 add-records aplica el conjunto completo, lo comprueba y recarga la zona" {
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,192.168.1.40 lb1,192.168.1.41
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,192.168.1.40 lb1,192.168.1.41
 
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "Registros aplicados" ]
@@ -42,7 +42,7 @@ zone_upload() {
 @test "AC-41 add-records sale con 10 si la zona no pasa named-checkzone" {
   export ZONE_CHECK=fail
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,192.168.1.40
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,192.168.1.40
 
   [ "$status" -eq 10 ]
   ! grep -q 'rndc' "$REMOTE" || return 1
@@ -52,28 +52,57 @@ zone_upload() {
   setup_dns_stubs
   stub_vm_ip dns1 -
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,192.168.1.40
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,192.168.1.40
 
   [ "$status" -eq 7 ]
   ! grep -qE '^ssh ' "$CALLS" || return 1
 }
 
 @test "AC-55 add-records sale con 2 ante argumentos inválidos sin llamar a nada" {
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24
   [ "$status" -eq 2 ]
-  run "$SCRIPT" DNS_1 stratus.lan 192.168.1.53 vm1,192.168.1.40
+  run "$SCRIPT" DNS_1 stratus.lan 192.168.1.53/24 vm1,192.168.1.40
   [ "$status" -eq 2 ]
   run "$SCRIPT" dns1 Stratus_Lan 192.168.1.53 vm1,192.168.1.40
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.999 vm1,192.168.1.40
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.999/24 vm1,192.168.1.40
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 dns1,192.168.1.40
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 dns1,192.168.1.40
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,192.168.1.40 vm1,192.168.1.41
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,192.168.1.40 vm1,192.168.1.41
   [ "$status" -eq 2 ]
-  run env -u APP_SSH_KEY_PATH "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,192.168.1.40
+  run env -u APP_SSH_KEY_PATH "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,192.168.1.40
+  [ "$status" -eq 2 ]
+  [ ! -s "$CALLS" ]
+}
+
+@test "AC-59 add-records sale con 2 si un registro no está en la LAN" {
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,10.0.2.15
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"Registro inválido: la dirección no está en la LAN"* ]]
+  [ ! -s "$CALLS" ]
+
+  # Un solo registro fuera de la LAN rechaza todo el conjunto
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 web-a,192.168.1.40 vm1,169.254.3.7
+  [ "$status" -eq 2 ]
+  [ ! -s "$CALLS" ]
+}
+
+@test "AC-59 add-records usa la subred de la IP recibida: 10.0.0.53/24 acepta 10.0.0.40" {
+  stub_vm_ip dns1 10.0.0.53
+
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 10.0.0.53/24 vm1,10.0.0.40
+
+  [ "$status" -eq 0 ]
+  zone="$(zone_upload)"
+  [[ "$zone" == *"dns1 IN A 10.0.0.53"* ]]
+  [[ "$zone" == *"vm1 IN A 10.0.0.40"* ]]
+}
+
+@test "AC-59 add-records sale con 2 si el tercer argumento no lleva prefijo" {
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,192.168.1.40
   [ "$status" -eq 2 ]
   [ ! -s "$CALLS" ]
 }

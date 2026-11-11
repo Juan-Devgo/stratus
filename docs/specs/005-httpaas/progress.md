@@ -88,3 +88,8 @@
 - Files: `scripts/dns/lib/dns-common.{sh,bats}` (`ip_in_subnet`, `validate_lan_records`); `service/{dns_validation,errors}.go` (`DNSConfig.OnLAN`, `ErrVMNotOnLAN`, `ServerRecordError`) + tests; `handler/respond.go` (+ test); `repository/dns.go` (`DeleteRecords`) + test. The three amended docs went in their own commit (T151).
 - Decisions: `ip_in_subnet` prints nothing and returns 1 for any non-IPv4 or a bad prefix (0-32 accepted); `validate_lan_records` reads the IP after the first comma and prints the 003-style text on stderr. `ServerRecordError` is matched with `errors.As` before the sentinel loop in `writeError`.
 - Notes: `wait_ips` still has its old `<vm...>` signature; Phase 17 changes it. In this shell the default `go` mismatches GOROOT: put `~/.local/share/mise/installs/go/1.27.3/bin` first in PATH to run tests.
+
+## Phase 16: Records only with LAN addresses on add, remove and DNS creation
+- Files: `scripts/dns/{add-records,remove-record,create-dns}.{sh,bats}`; `service/dns_records.go`, `dns_server.go` (+ tests); argv assertions in `web_servers_test.go`, `prepare_vms_test.go`, `haproxy_lbs_test.go`.
+- Decisions: add and remove take `<dns_cidr>` (`validate_cidr`, then `dns_ip` is the part before `/`); the services pass `s.cfg.IP`. `zoneRecords` filters by `OnLAN(ip)` only (not by `lb_servers`), as the plan says. `AddRecordsFor` with a non-LAN IP records a rejected `add_records` row and returns `ErrVMNotOnLAN`. The `CreateDNS` message now reads "Servidores web sin registro DNS (sin IPv4 en la LAN o asignados a un balanceador): ...".
+- Notes: refresh still uses `s.cfg.Address()` and the old argv (the three refresh argv assertions keep `192.168.1.53`); Phase 17 changes them. `bats -r scripts/dns/` 93 ok.

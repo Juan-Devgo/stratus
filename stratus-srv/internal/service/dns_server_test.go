@@ -139,15 +139,19 @@ func TestAC25_IPInUseMapsError(t *testing.T) {
 	}
 }
 
-// AC-27: los servidores web con IPv4 entran como registros iniciales; el que no tiene IPv4 se omite,
-// se nombra en el resultado y la creación termina bien.
-func TestAC27_CreateDNSSkipsWebWithoutIP(t *testing.T) {
-	runner := createDNSRunner("web-a running 192.168.1.40\nweb-b running 192.168.1.41\nweb-c poweroff -\n")
+// AC-27: solo los servidores web sin balanceador y con una IPv4 de la LAN entran como registros
+// iniciales; el que no tiene IPv4, el asignado a un balanceador y el que informa una dirección fuera
+// de la LAN se omiten, se nombran en el resultado y la creación termina bien. Ni el balanceador ni
+// el servidor asignado quedan con registro.
+func TestAC27_CreateDNSSkipsWebWithoutLANIP(t *testing.T) {
+	runner := createDNSRunner("web-a running 192.168.1.40\nweb-b running 192.168.1.41\nweb-c poweroff -\n" +
+		"web-d running 10.10.1.11\nweb-e running 10.0.2.15\nlb1 running 192.168.1.60\n")
 	env := newDNSEnv(t, runner)
 	ctx := context.Background()
-	for _, name := range []string{"web-a", "web-b", "web-c"} {
+	for _, name := range []string{"web-a", "web-b", "web-c", "web-d", "web-e"} {
 		env.registerWeb(t, name, WebTypeNginx)
 	}
+	env.assignToLB(t, "lb1", "web-d")
 
 	msg, err := env.svc.CreateDNS(ctx, validCreate("dns1"))
 
@@ -165,8 +169,18 @@ func TestAC27_CreateDNSSkipsWebWithoutIP(t *testing.T) {
 	if err != nil || len(recs) != 2 || recs[0] != (repository.DNSRecord{VM: "web-a", IP: "192.168.1.40"}) {
 		t.Errorf("dns_records = %+v, %v", recs, err)
 	}
-	if !strings.HasPrefix(msg, createDNSLine) || !strings.Contains(msg, "web-c") {
-		t.Errorf("mensaje = %q, se esperaba que nombrara web-c", msg)
+	if !strings.HasPrefix(msg, createDNSLine) {
+		t.Errorf("mensaje = %q", msg)
+	}
+	for _, name := range []string{"web-c", "web-d", "web-e"} {
+		if !strings.Contains(msg, name) {
+			t.Errorf("mensaje = %q, se esperaba que nombrara %s", msg, name)
+		}
+	}
+	for _, name := range []string{"web-a", "web-b", "lb1"} {
+		if strings.Contains(msg[len(createDNSLine):], name) {
+			t.Errorf("mensaje = %q, no debía nombrar %s", msg, name)
+		}
 	}
 }
 

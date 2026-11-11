@@ -57,7 +57,8 @@ source "$scripts_dir/dns/lib/dns-common.sh"
 #     salir con 2.
 # 1.3 Validar dns_cidr, gateway, domain y forwarders; si alguno falla, imprimir solo "Configuración
 #     de DNS incompleta" y salir con 2 (REQ-15).
-# 1.4 Validar los registros iniciales; exigir APP_GUEST_PASSWORD_FILE legible y APP_SSH_KEY_PATH.
+# 1.4 Validar los registros iniciales (cada uno dentro de la subred de dns_cidr, REQ-22); exigir
+#     APP_GUEST_PASSWORD_FILE legible y APP_SSH_KEY_PATH.
 # Ninguna validación fallida llama a VBoxManage, ssh, arping, ping ni create-vm.sh.
 
 if (($# < 9)); then
@@ -88,6 +89,7 @@ fi
 dns_ip="${dns_cidr%/*}"
 
 validate_records "$dns" "${records[@]}" || exit 2
+validate_lan_records "$dns_cidr" "${records[@]}" || exit 2
 if [[ -z "${APP_GUEST_PASSWORD_FILE:-}" || ! -f "$APP_GUEST_PASSWORD_FILE" || ! -r "$APP_GUEST_PASSWORD_FILE" ]]; then
   fail 2 "APP_GUEST_PASSWORD_FILE debe ser un archivo legible"
 fi

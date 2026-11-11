@@ -117,9 +117,9 @@ func (s *DNSService) Overview(ctx context.Context) (DNSOverview, error) {
 
 // CreateDNS crea el único servidor DNS (REQ-13): valida la entrada con las reglas de 001 y la
 // configuración APP_DNS_* (REQ-15), toma el bloqueo de creación compartido, registra el nombre y
-// ejecuta create-dns.sh con los registros iniciales de los servidores web que tienen IPv4 (REQ-20).
-// Si el script falla, el nombre se libera; si termina bien, guarda el servidor y esos registros. El
-// mensaje nombra los servidores web omitidos por no tener IPv4.
+// ejecuta create-dns.sh con los registros iniciales de los servidores web sin balanceador y con una
+// IPv4 de la LAN (REQ-20, REQ-22). Si el script falla, el nombre se libera; si termina bien, guarda
+// el servidor y esos registros. El mensaje nombra los servidores web omitidos.
 func (s *DNSService) CreateDNS(ctx context.Context, in CreateVMInput) (string, error) {
 	if err := ValidateCreateVM(in); err != nil {
 		return "", err
@@ -176,22 +176,26 @@ func (s *DNSService) CreateDNS(ctx context.Context, in CreateVMInput) (string, e
 		msg = fmt.Sprintf("Servidor DNS %s creado en %s; zona %s", in.Name, s.cfg.Address(), s.cfg.Domain)
 	}
 	if len(skipped) > 0 {
-		msg += ". Servidores web sin IPv4, sin registro DNS: " + strings.Join(skipped, ", ")
+		msg += ". Servidores web sin registro DNS (sin IPv4 en la LAN o asignados a un balanceador): " + strings.Join(skipped, ", ")
 	}
 	return msg, nil
 }
 
-// webRecords devuelve los registros iniciales de los servidores web que informan una IPv4 en
-// list-vms.sh (la interna 10.10.N.x si están asignados a un balanceador, REQ-22) y los nombres de
-// los que no tienen IPv4.
+// webRecords devuelve los registros iniciales de los servidores web que no están asignados a un
+// balanceador y cuya IPv4 de list-vms.sh está en la LAN (REQ-20, REQ-22), y los nombres de los demás:
+// los asignados y los que no tienen una IPv4 de la LAN.
 func (s *DNSService) webRecords(ctx context.Context) (initial []repository.DNSRecord, skipped []string, err error) {
 	webRows, err := s.web.List(ctx)
 	if err != nil || len(webRows) == 0 {
 		return nil, nil, err
 	}
+	_, serverLB, err := lbTopology(ctx, s.lbs)
+	if err != nil {
+		return nil, nil, err
+	}
 	states, _, _ := queryVMStates(ctx, s.runner, s.logger)
 	for _, w := range webRows {
-		if ip := states[w.Name].ip; ip != "" {
+		if ip := states[w.Name].ip; serverLB[w.Name] == "" && s.cfg.OnLAN(ip) {
 			initial = append(initial, repository.DNSRecord{VM: w.Name, IP: ip})
 		} else {
 			skipped = append(skipped, w.Name)

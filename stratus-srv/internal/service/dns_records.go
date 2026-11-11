@@ -34,8 +34,8 @@ func joinWarnings(a, b string) string {
 const deleteRecordWarning = "VM eliminada; no se pudo quitar su registro DNS, use Actualizar registros"
 
 // AddRecords agrega los registros A de las VMs elegidas (REQ-23). Cada VM se acepta solo si está
-// registrada, no es el servidor DNS, no tiene registro y list-vms.sh informa su IPv4 (la interna
-// 10.10.N.x de un servidor asignado, REQ-22); las aceptadas van en un solo add-records.sh con el
+// registrada, no es el servidor DNS ni servidor de un balanceador, no tiene registro y list-vms.sh
+// informa una IPv4 dentro de la LAN (REQ-22); las aceptadas van en un solo add-records.sh con el
 // conjunto completo y, si termina bien, se guardan. El resultado trae cada VM. Devuelve error solo si
 // no se agregó ninguna: el de la primera VM rechazada o el del script.
 func (s *DNSService) AddRecords(ctx context.Context, vms []string) (string, []RecordResult, error) {
@@ -47,6 +47,10 @@ func (s *DNSService) AddRecords(ctx context.Context, vms []string) (string, []Re
 		return "", nil, &ValidationError{Message: "Seleccione al menos una VM"}
 	}
 	states, _, _ := queryVMStates(ctx, s.runner, s.logger)
+	_, serverLB, err := lbTopology(ctx, s.lbs)
+	if err != nil {
+		return "", nil, err
+	}
 
 	results := make([]RecordResult, 0, len(vms))
 	var accepted []repository.DNSRecord
@@ -55,7 +59,7 @@ func (s *DNSService) AddRecords(ctx context.Context, vms []string) (string, []Re
 		if slices.ContainsFunc(results, func(r RecordResult) bool { return r.VM == vm }) {
 			continue
 		}
-		ip, err := s.recordCandidate(ctx, dns, vm, states)
+		ip, err := s.recordCandidate(ctx, dns, vm, states, serverLB)
 		if err != nil {
 			results = append(results, RecordResult{VM: vm, Message: userMessage(err)})
 			if firstErr == nil {
@@ -80,8 +84,11 @@ func (s *DNSService) AddRecords(ctx context.Context, vms []string) (string, []Re
 	return "Registros agregados: " + strings.Join(names, ", "), results, nil
 }
 
-// recordCandidate devuelve la IPv4 con que se registraría la VM, o el motivo por el que no.
-func (s *DNSService) recordCandidate(ctx context.Context, dns, vm string, states map[string]vmStatus) (string, error) {
+// recordCandidate devuelve la IPv4 con que se registraría la VM, o el motivo por el que no. El orden
+// de las comprobaciones es el de REQ-23: registrada, no es el servidor DNS, no es servidor de un
+// balanceador, sin registro, con IPv4 y con esa IPv4 en la LAN.
+func (s *DNSService) recordCandidate(ctx context.Context, dns, vm string, states map[string]vmStatus,
+	serverLB map[string]string) (string, error) {
 	if err := ValidateVMName(vm); err != nil {
 		return "", err
 	}
@@ -93,6 +100,9 @@ func (s *DNSService) recordCandidate(ctx context.Context, dns, vm string, states
 	if vm == dns {
 		return "", &ValidationError{Message: "El servidor DNS ya tiene su registro"}
 	}
+	if lb, assigned := serverLB[vm]; assigned {
+		return "", &ServerRecordError{LB: lb}
+	}
 	if _, has, err := s.dnsRepo.Record(ctx, vm); err != nil {
 		return "", err
 	} else if has {
@@ -102,19 +112,33 @@ func (s *DNSService) recordCandidate(ctx context.Context, dns, vm string, states
 	if ip == "" {
 		return "", ErrVMNoIP
 	}
+	if !s.cfg.OnLAN(ip) {
+		return "", ErrVMNotOnLAN
+	}
 	return ip, nil
+}
+
+// zoneRecords devuelve los registros guardados que van en la zona: los que cumplen la regla de la
+// LAN (REQ-22). Una fila guardada antes de la enmienda con una dirección interna sigue en SQLite
+// pero fuera de la zona hasta que "Actualizar registros" la quite.
+func (s *DNSService) zoneRecords(ctx context.Context) ([]repository.DNSRecord, error) {
+	current, err := s.dnsRepo.Records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(current, func(r repository.DNSRecord) bool { return !s.cfg.OnLAN(r.IP) }), nil
 }
 
 // applyAdd ejecuta add-records.sh con los registros guardados más los nuevos, con el bloqueo del
 // servidor DNS, y guarda los nuevos si termina bien.
 func (s *DNSService) applyAdd(ctx context.Context, dns string, added []repository.DNSRecord) error {
-	current, err := s.dnsRepo.Records(ctx)
+	current, err := s.zoneRecords(ctx)
 	if err != nil {
 		return err
 	}
 	all := append(slices.Clone(current), added...)
 	slices.SortFunc(all, func(a, b repository.DNSRecord) int { return strings.Compare(a.VM, b.VM) })
-	args := append([]string{dns, s.cfg.Domain, s.cfg.Address()}, recordSpecs(all)...)
+	args := append([]string{dns, s.cfg.Domain, s.cfg.IP}, recordSpecs(all)...)
 	save := func(ctx context.Context) error { return s.dnsRepo.InsertRecords(ctx, added) }
 	_, err = s.ops.run(ctx, "add_records", dns, "dns/add-records.sh", args, true, save)
 	return mapDNSError(err)
@@ -145,12 +169,12 @@ func (s *DNSService) RemoveRecord(ctx context.Context, vm string) (string, error
 
 // applyRemove ejecuta remove-record.sh con los registros guardados menos el de vm.
 func (s *DNSService) applyRemove(ctx context.Context, dns, vm string, onSuccess func(context.Context) error) error {
-	current, err := s.dnsRepo.Records(ctx)
+	current, err := s.zoneRecords(ctx)
 	if err != nil {
 		return err
 	}
 	remaining := slices.DeleteFunc(current, func(r repository.DNSRecord) bool { return r.VM == vm })
-	args := append([]string{dns, s.cfg.Domain, s.cfg.Address(), vm}, recordSpecs(remaining)...)
+	args := append([]string{dns, s.cfg.Domain, s.cfg.IP, vm}, recordSpecs(remaining)...)
 	_, err = s.ops.run(ctx, "remove_record", dns, "dns/remove-record.sh", args, true, onSuccess)
 	return mapDNSError(err)
 }
@@ -270,7 +294,8 @@ func (s *DNSService) recordsServer(ctx context.Context) (string, error) {
 }
 
 // AddRecordsFor es el hook de crear un servidor web (REQ-5): sin servidor DNS no hace nada; si no,
-// agrega el registro de la VM nueva como su propia operación add_records. Cualquier error lo
+// agrega el registro de la VM nueva como su propia operación add_records, siempre que su IPv4 esté
+// en la LAN (REQ-22); si no, es ErrVMNotOnLAN y queda una fila rechazada. Cualquier error lo
 // convierte el llamador en advertencia; un rechazo antes del script queda como fila fallida.
 func (s *DNSService) AddRecordsFor(ctx context.Context, vm, ip string) error {
 	dns, ok, err := s.dnsRepo.Server(ctx)
@@ -280,6 +305,10 @@ func (s *DNSService) AddRecordsFor(ctx context.Context, vm, ip string) error {
 	if err := ValidateDNSConfig(s.cfg); err != nil {
 		s.recordRejected(ctx, "add_records", dns, "dns/add-records.sh", []string{vm + "," + ip}, err)
 		return err
+	}
+	if !s.cfg.OnLAN(ip) {
+		s.recordRejected(ctx, "add_records", dns, "dns/add-records.sh", []string{vm + "," + ip}, ErrVMNotOnLAN)
+		return ErrVMNotOnLAN
 	}
 	err = s.applyAdd(ctx, dns, []repository.DNSRecord{{VM: vm, IP: ip}})
 	if errors.Is(err, ErrOperationInProgress) {
@@ -346,8 +375,12 @@ func userMessage(err error) string {
 	if errors.As(err, &validation) {
 		return validation.Message
 	}
+	var serverRecord *ServerRecordError
+	if errors.As(err, &serverRecord) {
+		return serverRecord.Error()
+	}
 	for _, sentinel := range []error{ErrVMNotFound, ErrRecordExists, ErrVMNoIP, ErrOperationInProgress,
-		ErrDNSConfigIncomplete, ErrDNSOff, ErrZoneInvalid} {
+		ErrDNSConfigIncomplete, ErrDNSOff, ErrZoneInvalid, ErrVMNotOnLAN} {
 		if errors.Is(err, sentinel) {
 			return sentinel.Error()
 		}

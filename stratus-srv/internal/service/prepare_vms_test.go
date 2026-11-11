@@ -1093,7 +1093,7 @@ func TestAC34_DeleteVMRemovesRecord(t *testing.T) {
 				t.Fatalf("DeleteVM = %+v, %v", res, err)
 			}
 			calls := runner.callsTo("dns/remove-record.sh")
-			want := []string{"dns1", testDomain, "192.168.1.53", "vm1", "vm2,192.168.1.42"}
+			want := []string{"dns1", testDomain, "192.168.1.53/24", "vm1", "vm2,192.168.1.42"}
 			if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
 				t.Errorf("remove-record.sh = %+v, se esperaba %v", calls, want)
 			}

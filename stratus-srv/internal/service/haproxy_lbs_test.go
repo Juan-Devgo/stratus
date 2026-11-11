@@ -354,8 +354,8 @@ func TestAC34_DeleteLBRemovesRecord(t *testing.T) {
 		t.Fatalf("DeleteLB = %+v, %v", res, err)
 	}
 	calls := runner.callsTo("dns/remove-record.sh")
-	if len(calls) != 1 || calls[0].Args[3] != "lb1" {
-		t.Errorf("remove-record.sh = %+v, se esperaba quitar lb1", calls)
+	if len(calls) != 1 || calls[0].Args[2] != "192.168.1.53/24" || calls[0].Args[3] != "lb1" {
+		t.Errorf("remove-record.sh = %+v, se esperaba quitar lb1 con 192.168.1.53/24", calls)
 	}
 	if _, has, _ := env.dns.Record(ctx, "lb1"); has {
 		t.Error("el registro de lb1 debía borrarse")

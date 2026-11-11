@@ -27,7 +27,7 @@ zone_upload() {
 }
 
 @test "AC-33 remove-record aplica el conjunto restante sin la línea de la VM" {
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1 lb1,192.168.1.41
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1 lb1,192.168.1.41
 
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "Registro de vm1 quitado" ]
@@ -38,7 +38,7 @@ zone_upload() {
 }
 
 @test "AC-33 remove-record sin registros restantes deja solo el del servidor DNS" {
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1
 
   [ "$status" -eq 0 ]
   zone="$(zone_upload)"
@@ -50,22 +50,35 @@ zone_upload() {
   setup_dns_stubs
   stub_vm_ip dns1 -
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1
 
   [ "$status" -eq 7 ]
   ! grep -qE '^ssh ' "$CALLS" || return 1
 }
 
 @test "AC-55 remove-record sale con 2 ante argumentos inválidos sin llamar a nada" {
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 VM_1
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 VM_1
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1 vm1,192.168.1.40
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1 vm1,192.168.1.40
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1 lb1
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1 lb1
   [ "$status" -eq 2 ]
   run "$SCRIPT" dns1 lab 192.168.1 vm1
+  [ "$status" -eq 2 ]
+  [ ! -s "$CALLS" ]
+}
+
+@test "AC-59 remove-record sale con 2 si un registro restante no está en la LAN" {
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1 lb1,192.168.1.41 web-a,10.10.1.11
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"Registro inválido: la dirección no está en la LAN"* ]]
+  [ ! -s "$CALLS" ]
+}
+
+@test "AC-59 remove-record sale con 2 si el tercer argumento no lleva prefijo" {
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1 lb1,192.168.1.41
   [ "$status" -eq 2 ]
   [ ! -s "$CALLS" ]
 }

@@ -269,7 +269,7 @@ func TestAC10_DeleteWebRemovesRecord(t *testing.T) {
 			t.Fatalf("DeleteWeb = %+v, %v", res, err)
 		}
 		calls := runner.callsTo("dns/remove-record.sh")
-		want := []string{"dns1", testDomain, "192.168.1.53", "web-a", "web-b,192.168.1.41"}
+		want := []string{"dns1", testDomain, "192.168.1.53/24", "web-a", "web-b,192.168.1.41"}
 		if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
 			t.Errorf("remove-record.sh = %+v, se esperaba %v", calls, want)
 		}
@@ -340,7 +340,7 @@ func TestAC5_CreateWebAddsRecord(t *testing.T) {
 		t.Fatalf("CreateWeb = %+v, %v", res, err)
 	}
 	calls := runner.callsTo("dns/add-records.sh")
-	want := []string{"dns1", testDomain, "192.168.1.53", "web-a,192.168.1.40"}
+	want := []string{"dns1", testDomain, "192.168.1.53/24", "web-a,192.168.1.40"}
 	if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
 		t.Errorf("add-records.sh = %+v, se esperaba %v", calls, want)
 	}

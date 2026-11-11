@@ -74,7 +74,7 @@ func TestAC30_AddRecordsPerVMResult(t *testing.T) {
 		t.Errorf("resultados = %+v, se esperaba %+v", results, want)
 	}
 	calls := runner.callsTo("dns/add-records.sh")
-	wantArgs := []string{"dns1", testDomain, "192.168.1.53", "lb1,192.168.1.41", "vm1,192.168.1.40"}
+	wantArgs := []string{"dns1", testDomain, "192.168.1.53/24", "lb1,192.168.1.41", "vm1,192.168.1.40"}
 	if len(calls) != 1 || !slices.Equal(calls[0].Args, wantArgs) {
 		t.Errorf("add-records.sh = %+v, se esperaba %v", calls, wantArgs)
 	}
@@ -104,23 +104,161 @@ func TestAC30_AddRecordsPerVMResult(t *testing.T) {
 	}
 }
 
-// AC-31: el registro de un servidor asignado a un balanceador usa su IP interna de list-vms.sh.
-func TestAC31_AssignedServerRecordUsesInternalIP(t *testing.T) {
-	env, runner := newRecordsEnv(t)
-	runner.results["prepare/list-vms.sh"] = RunResult{Stdout: []byte("dns1 running 192.168.1.53\nweb-a running 10.10.1.11\n")}
+// assignWebA registra web-a como servidor de lb1 (ya registrado por newRecordsEnv).
+func assignWebA(t *testing.T, env dnsEnv) {
+	t.Helper()
 	env.registerWeb(t, "web-a", WebTypeNginx)
 	if err := env.lbs.InsertServer(context.Background(), repository.LBServer{LB: "lb1", Name: "server1", VM: "web-a",
 		Port: 80, LastIP: "10.10.1.11", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
+}
 
-	if _, _, err := env.svc.AddRecords(context.Background(), []string{"web-a"}); err != nil {
+// AC-31: un servidor asignado a un balanceador no se registra: su resultado nombra el balanceador,
+// las demás VMs siguen y el argv no lleva su registro; solo, la operación falla con 409.
+func TestAC31_AssignedServerRejected(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	runner.results["prepare/list-vms.sh"] = RunResult{Stdout: []byte(
+		"dns1 running 192.168.1.53\nweb-a running 10.10.1.11\nvm1 running 192.168.1.40\n")}
+	assignWebA(t, env)
+	ctx := context.Background()
+
+	_, results, err := env.svc.AddRecords(ctx, []string{"web-a", "vm1"})
+
+	if err != nil {
 		t.Fatalf("AddRecords: %v", err)
 	}
-
+	want := []RecordResult{
+		{VM: "web-a", Message: "La VM es servidor del balanceador lb1; registre el balanceador"},
+		{VM: "vm1", OK: true, Message: "Registro agregado"},
+	}
+	if !slices.Equal(results, want) {
+		t.Errorf("resultados = %+v, se esperaba %+v", results, want)
+	}
 	calls := runner.callsTo("dns/add-records.sh")
-	if len(calls) != 1 || !slices.Contains(calls[0].Args, "web-a,10.10.1.11") {
-		t.Errorf("add-records.sh = %+v, se esperaba web-a,10.10.1.11", calls)
+	if len(calls) != 1 || !slices.Equal(calls[0].Args[3:], []string{"vm1,192.168.1.40"}) {
+		t.Errorf("add-records.sh = %+v, se esperaba solo vm1", calls)
+	}
+	if recs := env.records(t); len(recs) != 1 || recs[0].VM != "vm1" {
+		t.Errorf("dns_records = %+v, se esperaba solo vm1", recs)
+	}
+
+	_, _, err = env.svc.AddRecords(ctx, []string{"web-a"})
+
+	var serverErr *ServerRecordError
+	if !errors.As(err, &serverErr) || serverErr.LB != "lb1" {
+		t.Errorf("web-a solo: err = %v, se esperaba *ServerRecordError de lb1", err)
+	}
+	if n := len(runner.callsTo("dns/add-records.sh")); n != 1 {
+		t.Errorf("add-records.sh se llamó %d veces, se esperaba 1", n)
+	}
+}
+
+// AC-59: una VM cuya IPv4 está fuera de la subred de APP_DNS_IP (por ejemplo la NAT 10.0.2.15) no
+// se registra: ErrVMNotOnLAN, sin llamar a add-records.sh. El hook AddRecordsFor deja además una
+// fila rechazada.
+func TestAC59_AddRecordRejectsNonLAN(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	runner.results["prepare/list-vms.sh"] = RunResult{Stdout: []byte("dns1 running 192.168.1.53\nvm1 running 10.0.2.15\n")}
+	ctx := context.Background()
+
+	_, results, err := env.svc.AddRecords(ctx, []string{"vm1"})
+
+	if !errors.Is(err, ErrVMNotOnLAN) {
+		t.Fatalf("err = %v, se esperaba ErrVMNotOnLAN", err)
+	}
+	if len(results) != 1 || results[0].OK || results[0].Message != "La VM no tiene una dirección en la LAN" {
+		t.Errorf("resultados = %+v", results)
+	}
+	if n := len(runner.callsTo("dns/add-records.sh")); n != 0 {
+		t.Errorf("add-records.sh se llamó %d veces, se esperaba 0", n)
+	}
+
+	err = env.svc.AddRecordsFor(ctx, "vm1", "10.0.2.15")
+
+	if !errors.Is(err, ErrVMNotOnLAN) {
+		t.Errorf("AddRecordsFor: err = %v, se esperaba ErrVMNotOnLAN", err)
+	}
+	if n := len(runner.callsTo("dns/add-records.sh")); n != 0 {
+		t.Errorf("add-records.sh se llamó %d veces, se esperaba 0", n)
+	}
+	if op := env.lastDNSOperation(t); op.Operation != "add_records" || op.Result != "error" ||
+		op.Stderr != "La VM no tiene una dirección en la LAN" {
+		t.Errorf("historial = %+v, se esperaba add_records rechazado", op)
+	}
+	if recs := env.records(t); len(recs) != 0 {
+		t.Errorf("dns_records = %+v, se esperaba vacío", recs)
+	}
+}
+
+// AC-61: tras quitarlo de un balanceador, el registro de web-a solo se agrega con una dirección de
+// la LAN; la interna 10.10.N.x o la NAT se rechazan y sin IP vale el texto de 001.
+func TestAC61_AddAfterRemoveNeverInternal(t *testing.T) {
+	cases := []struct {
+		name, ip string
+		wantErr  error
+		wantSpec string
+	}{
+		{"dirección interna", "10.10.1.11", ErrVMNotOnLAN, ""},
+		{"dirección NAT", "10.0.2.15", ErrVMNotOnLAN, ""},
+		{"sin IP", "-", ErrVMNoIP, ""},
+		{"dirección de la LAN", "192.168.1.47", nil, "web-a,192.168.1.47"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, runner := newRecordsEnv(t)
+			runner.results["prepare/list-vms.sh"] = RunResult{Stdout: []byte("dns1 running 192.168.1.53\nweb-a running " + tc.ip + "\n")}
+			env.registerWeb(t, "web-a", WebTypeNginx)
+
+			_, _, err := env.svc.AddRecords(context.Background(), []string{"web-a"})
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, se esperaba %v", err, tc.wantErr)
+			}
+			calls := runner.callsTo("dns/add-records.sh")
+			if tc.wantSpec == "" {
+				if len(calls) != 0 {
+					t.Errorf("add-records.sh se llamó %d veces, se esperaba 0", len(calls))
+				}
+				return
+			}
+			if len(calls) != 1 || !slices.Equal(calls[0].Args[3:], []string{tc.wantSpec}) {
+				t.Errorf("add-records.sh = %+v, se esperaba %s", calls, tc.wantSpec)
+			}
+		})
+	}
+}
+
+// AC-58: la zona de agregar y quitar se arma solo con los registros guardados que están en la LAN;
+// las filas guardadas antes de la enmienda (10.10.x) siguen en SQLite hasta que un refresco las quite.
+func TestAC58_ZoneSetSkipsStoredNonLANRecords(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	ctx := context.Background()
+	stored := []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"}, {VM: "vm3", IP: "10.10.2.15"},
+		{VM: "web-a", IP: "10.10.1.11"}}
+	if err := env.dns.InsertRecords(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := env.svc.AddRecords(ctx, []string{"lb1"}); err != nil {
+		t.Fatalf("AddRecords: %v", err)
+	}
+	if calls := runner.callsTo("dns/add-records.sh"); len(calls) != 1 ||
+		!slices.Equal(calls[0].Args[3:], []string{"lb1,192.168.1.41", "vm1,192.168.1.40"}) {
+		t.Errorf("add-records.sh = %+v, se esperaba lb1 y vm1 sin los registros fuera de la LAN", calls)
+	}
+
+	if _, err := env.svc.RemoveRecord(ctx, "vm1"); err != nil {
+		t.Fatalf("RemoveRecord: %v", err)
+	}
+	calls := runner.callsTo("dns/remove-record.sh")
+	if len(calls) != 1 || !slices.Equal(calls[0].Args[3:], []string{"vm1", "lb1,192.168.1.41"}) {
+		t.Errorf("remove-record.sh = %+v, se esperaba lb1 sin los registros fuera de la LAN", calls)
+	}
+	wantRows := []repository.DNSRecord{{VM: "lb1", IP: "192.168.1.41"}, {VM: "vm3", IP: "10.10.2.15"},
+		{VM: "web-a", IP: "10.10.1.11"}}
+	if recs := env.records(t); !slices.Equal(recs, wantRows) {
+		t.Errorf("dns_records = %+v, se esperaba %+v", recs, wantRows)
 	}
 }
 
@@ -140,7 +278,7 @@ func TestAC33_RemoveRecordIdempotent(t *testing.T) {
 		t.Fatalf("RemoveRecord = %q, %v", msg, err)
 	}
 	calls := runner.callsTo("dns/remove-record.sh")
-	want := []string{"dns1", testDomain, "192.168.1.53", "vm1", "lb1,192.168.1.41"}
+	want := []string{"dns1", testDomain, "192.168.1.53/24", "vm1", "lb1,192.168.1.41"}
 	if len(calls) != 1 || !slices.Equal(calls[0].Args, want) {
 		t.Errorf("remove-record.sh = %+v, se esperaba %v", calls, want)
 	}
@@ -357,6 +495,14 @@ func TestAC6_AddRecordsForHook(t *testing.T) {
 	}
 	if recs := env.records(t); len(recs) != 1 {
 		t.Errorf("dns_records = %+v", recs)
+	}
+
+	// Una dirección fuera de la LAN se rechaza sin llamar al script
+	if err := env.svc.AddRecordsFor(ctx, "vm2", "10.10.1.11"); !errors.Is(err, ErrVMNotOnLAN) {
+		t.Errorf("fuera de la LAN: err = %v, se esperaba ErrVMNotOnLAN", err)
+	}
+	if n := len(runner.callsTo("dns/add-records.sh")); n != 1 {
+		t.Errorf("add-records.sh se llamó %d veces, se esperaba 1", n)
 	}
 
 	if !env.locks.TryLock("dns1") {

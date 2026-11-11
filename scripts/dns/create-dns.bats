@@ -90,6 +90,14 @@ line_in() {
   [[ "$zone" == *$'web-a IN A 192.168.1.40\nweb-b IN A 192.168.1.41'* ]]
 }
 
+@test "AC-27 create-dns rechaza un registro inicial fuera de la LAN" {
+  run --separate-stderr "$SCRIPT" "${ARGS[@]}" web-d,10.10.1.11
+
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"Registro inválido: la dirección no está en la LAN"* ]]
+  [ ! -s "$CALLS" ]
+}
+
 @test "AC-22 create-dns sale con 5 y borra la VM si la IP estática nunca aparece" {
   stub_dns_vm dns1 192.168.1.40 192.168.1.40
 

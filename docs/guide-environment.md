@@ -33,7 +33,32 @@ arping -c 1 -w 1 -I "$APP_BRIDGE_ADAPTER" 192.168.1.1; echo $?    # 0 (reply) or
 ```
 
 Without `arping`, or when it cannot send the probe, creating the DNS server fails with exit 4 and no VM
-is registered. Other modules do not need it.
+is registered. Other modules do not need it. The two messages in the history stderr are:
+
+| stderr | Cause | Fix |
+|---|---|---|
+| `arping no está instalado en el host` | no `arping` in `PATH` | install the package above |
+| `arping no pudo enviar la sonda ARP (código 2); revise cap_net_raw` | `arping` exits 2 (`arping: socket: Operation not permitted`): it has no `cap_net_raw` | run the `setcap` above |
+
+Neither message is about the value of `APP_DNS_IP`: the probe fails the same way for any address.
+
+The capability is stored on the binary file, so **a package upgrade that replaces `arping` removes it**
+and the error comes back. Run the `setcap` again after upgrading. On Arch, `iputils` does not set it,
+and a pacman hook can restore it after every upgrade:
+
+```ini
+# /etc/pacman.d/hooks/arping-cap-net-raw.hook
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = iputils
+
+[Action]
+Description = Restaurando cap_net_raw en arping...
+When = PostTransaction
+Exec = /usr/bin/setcap cap_net_raw+ep /usr/bin/arping
+```
 
 ## 2. Create `.env`
 
@@ -107,6 +132,11 @@ Choose `APP_DNS_IP` **outside the DHCP pool** of the LAN router, on the network 
 `APP_BRIDGE_ADAPTER`. Before creating the VM, `create-dns.sh` sends one ARP probe and one ping to that
 address and stops with "La IP del servidor DNS ya está en uso" if anything answers (AC-25).
 
+The backend connects to the DNS server over SSH at `APP_DNS_IP` and checks it with `dig`, so the host
+must reach that address directly: its own IPv4 on `APP_BRIDGE_ADAPTER` must be inside the subnet of
+`APP_DNS_IP`. Otherwise creation fails with "El servidor DNS <dns> no responde por SSH en <ip>" (exit 5)
+and the VM is deleted.
+
 Records hold only addresses inside the subnet of `APP_DNS_IP` (005 REQ-22). A VM whose address is
 internal (`10.10.N.x`) or NAT (`10.0.2.x`) gets no record, and the servers of a load balancer are never
 registered. For that reason `APP_DNS_IP` must stay outside `10.10.0.0/16`, the range of the load
@@ -120,6 +150,24 @@ APP_DNS_GATEWAY=192.168.1.1
 APP_DNS_DOMAIN=stratus.lan
 APP_DNS_FORWARDERS=1.1.1.1,8.8.8.8
 ```
+
+### 2.5 Resolving the zone from the host
+
+The app does not configure the DNS server as resolver of the host (005, out of scope). To resolve
+`<vm>.<APP_DNS_DOMAIN>` from the host until the next network reconnect, send only that zone to the DNS
+server with systemd-resolved. It replaces the DHCP nameservers of `APP_BRIDGE_ADAPTER`, and bind9
+forwards other names to `APP_DNS_FORWARDERS`, so internet names keep resolving:
+
+```bash
+set -a; source stratus-srv/.env; set +a
+sudo resolvectl dns "$APP_BRIDGE_ADAPTER" "${APP_DNS_IP%/*}"
+sudo resolvectl domain "$APP_BRIDGE_ADAPTER" "~$APP_DNS_DOMAIN"
+resolvectl query "vm1.$APP_DNS_DOMAIN"
+```
+
+Undo it with `sudo resolvectl revert "$APP_BRIDGE_ADAPTER"`. bind9 answers only clients in the subnet of
+`APP_DNS_IP` and `10.10.0.0/16` (REQ-16). A browser with secure DNS (DoH) enabled bypasses
+systemd-resolved and does not resolve the zone.
 
 ## 3. The root password file (`APP_GUEST_PASSWORD_FILE`)
 
@@ -214,6 +262,8 @@ VBoxManage --version
 test -r "$APP_BASE_DISK" && test -r "$APP_HAPROXY_BASE_DISK" && echo disks ok
 for d in "$APP_APACHE_BASE_DISK" "$APP_NGINX_BASE_DISK" "$APP_DNS_BASE_DISK"; do test -r "$d" && echo "$d ok"; done   # 005, optional
 getcap "$(command -v arping)"                                         # cap_net_raw=ep (005 DNS only)
+ip -4 -br addr show "$APP_BRIDGE_ADAPTER"                             # host IPv4 inside the subnet of APP_DNS_IP (005)
+arping -c 1 -w 1 -I "$APP_BRIDGE_ADAPTER" "${APP_DNS_IP%/*}"; echo $?    # 1: free, 0: in use, 2: no cap_net_raw (005)
 stat -c '%a %n' "$APP_GUEST_PASSWORD_FILE" "$APP_SSH_KEY_PATH"      # 600 for both
 test -r "$APP_SSH_KEY_PATH.pub" && echo pubkey ok
 VBoxManage list bridgedifs | grep -x "Name:[[:space:]]*$APP_BRIDGE_ADAPTER"
@@ -221,7 +271,8 @@ VBoxManage list bridgedifs | grep -x "Name:[[:space:]]*$APP_BRIDGE_ADAPTER"
 
 The first VM creation is slow (it boots, bootstraps, reboots and waits for DHCP and SSH; the script
 bounds itself to about 14 minutes, below the backend's 15-minute limit) and only one creation can run
-at a time.
+at a time. Creating the DNS server also reboots the VM onto its static IP (up to 3 more minutes), so
+in the worst case the backend stops it at 15 minutes; the script then deletes the VM and its disk.
 
 ## 7. Tests
 

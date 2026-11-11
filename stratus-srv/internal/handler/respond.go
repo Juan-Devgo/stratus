@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -82,6 +83,11 @@ var sentinelStatus = []struct {
 // writeError traduce el error del servicio a un código HTTP y un mensaje comprensible (REQ-16).
 // Los errores inesperados solo se detallan en el log del servidor, nunca en la respuesta.
 func writeError(w http.ResponseWriter, err error) {
+	// El navegador abandonó la petición (recarga o navegación): nadie lee la respuesta y no es un
+	// error interno (005 REQ-50).
+	if errors.Is(err, context.Canceled) {
+		return
+	}
 	var validation *service.ValidationError
 	if errors.As(err, &validation) {
 		writeJSON(w, http.StatusBadRequest, errorBody{validation.Message})

@@ -140,3 +140,8 @@
 - Files: none beyond `tasks.md` and this file.
 - Decisions: none.
 - Notes: T238 green: gofmt clean, golangci-lint 0 issues, `go test ./...` ok, `bats -r -j 8 scripts/dns/` 90 ok / 0 not ok, UI typecheck, 287 tests and `pnpm build` ok. T239 (real-host demo AC-70) is manual and stays unchecked, like T149, T150 and T204: it needs VirtualBox, the DNS server VM and `APP_DNS_*`.
+
+## Phase 26: Amendment 2026-11-11: abandoned requests
+- Files: `service/vm_status{,_test}.go`; `handler/respond{,_test}.go`. The amended docs went in their own commit (T240).
+- Decisions: `queryVMStates` checks `ctx.Err()` after `list-vms.sh` and drops the failed row whatever the runner returned (an error or a kill exit code), so every caller behaves the same. `writeError` returns before any mapping for a wrapped `context.Canceled`: no log line and no response, since the client is gone.
+- Notes: reported from the log lines "no se pudo guardar el historial de list_dns: guardar operación: context canceled" and "error interno: obtener servidor DNS: context canceled" after a page reload. The tests use a local `cancelRunner` because `fakeRunner` never returns an error. gofmt clean, golangci-lint 0 issues, `go test ./...` ok.

@@ -1,10 +1,16 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"stratus-srv/internal/service"
@@ -126,6 +132,41 @@ func TestAC23_AC29_AC35_AC41_WriteErrorMapsHTTPaaSErrors(t *testing.T) {
 			}
 			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || body.Error != tt.wantError {
 				t.Errorf("error = %q (%v), se esperaba %q", body.Error, err, tt.wantError)
+			}
+		})
+	}
+}
+
+// AC-71: una petición que el navegador abandonó no se registra como error interno ni recibe
+// respuesta (REQ-50); otro error desconocido sí da 500 y la línea del registro.
+func TestAC71_CancelledRequestNotLogged(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantLogged bool
+		wantStatus int
+	}{
+		{"cancelada", fmt.Errorf("obtener servidor DNS: %w", context.Canceled), false, http.StatusOK},
+		{"otro error", fmt.Errorf("obtener servidor DNS: %w", errors.New("disco lleno")), true, http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			log.SetOutput(&buf)
+			t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+			rec := httptest.NewRecorder()
+			writeError(rec, tt.err)
+
+			if got := strings.Contains(buf.String(), "error interno"); got != tt.wantLogged {
+				t.Errorf("registro = %q; se esperaba la línea = %v", buf.String(), tt.wantLogged)
+			}
+			// httptest.ResponseRecorder queda en 200 y sin cuerpo si no se escribió nada.
+			if rec.Code != tt.wantStatus {
+				t.Errorf("código = %d; se esperaba %d", rec.Code, tt.wantStatus)
+			}
+			if !tt.wantLogged && rec.Body.Len() != 0 {
+				t.Errorf("cuerpo = %q; se esperaba vacío", rec.Body.String())
 			}
 		})
 	}

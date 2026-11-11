@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"testing"
@@ -40,6 +41,46 @@ func TestAC8_QueryVMStatesReturnsFailedRun(t *testing.T) {
 			}
 			if failed.Command != "prepare/list-vms.sh" || failed.ExitCode != tt.wantCode || failed.Result != tt.wantResult {
 				t.Errorf("failed = %+v", failed)
+			}
+		})
+	}
+}
+
+// cancelRunner imita a ExecRunner cuando el navegador cierra la conexión: con el contexto
+// cancelado el script muere y Run devuelve el error del contexto o un código de salida.
+type cancelRunner struct {
+	res RunResult
+	err error
+}
+
+func (c cancelRunner) Run(ctx context.Context, _ string, _ ...string) (RunResult, error) {
+	if c.err != nil {
+		return RunResult{}, fmt.Errorf("ejecutar list-vms.sh: %w", c.err)
+	}
+	return c.res, nil
+}
+
+// AC-71: una lectura de list-vms.sh cortada porque el navegador abandonó la petición no devuelve
+// fila fallida (REQ-50); la misma falla con el contexto vivo sí la devuelve (REQ-35).
+func TestAC71_CancelledListNotRecorded(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	tests := []struct {
+		name       string
+		ctx        context.Context
+		runner     cancelRunner
+		wantFailed bool
+	}{
+		{"cancelada con error", cancelled, cancelRunner{err: context.Canceled}, false},
+		{"cancelada con código", cancelled, cancelRunner{res: RunResult{ExitCode: -1, Stderr: "signal: killed"}}, false},
+		{"viva con código", context.Background(), cancelRunner{res: RunResult{ExitCode: 4, Stderr: "error de VBoxManage"}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, failed := queryVMStates(tt.ctx, tt.runner, logger)
+			if got := failed != nil; got != tt.wantFailed {
+				t.Errorf("failed = %+v; se esperaba fila = %v", failed, tt.wantFailed)
 			}
 		})
 	}

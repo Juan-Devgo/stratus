@@ -38,6 +38,11 @@ func queryVMStates(ctx context.Context, runner ScriptRunner, logger *log.Logger)
 	default:
 		states = parseVMStates(string(res.Stdout))
 	}
+	// Si el navegador abandonó la petición, el script murió por eso y no por VirtualBox: la lectura
+	// no se registra como fallida (REQ-50). Nadie leerá listErr.
+	if ctx.Err() != nil {
+		failed = nil
+	}
 	return states, listErr, failed
 }
 

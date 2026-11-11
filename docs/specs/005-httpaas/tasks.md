@@ -305,6 +305,6 @@ Removed on 2026-11-11 by Phase 21.
 
 ## Phase 28: Amendment 2026-11-11: no record IP column in the DNS records table (REQ-23)
 - [x] T249 Amend `spec.md` (REQ-23, REQ-43, AC-58, AC-63, clarification), `plan.md` and this file, and commit the docs
-- [ ] T250 Change the AC-63 test and add a headers test without "IP del registro" in `stratus-ui/src/features/dns/RecordTable.test.tsx` (REQ-23, REQ-43, AC-63)
-- [ ] T251 Remove the "IP del registro" column from `stratus-ui/src/features/dns/RecordTable.tsx` (REQ-23, AC-58, AC-63)
-- [ ] T252 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path
+- [x] T250 Change the AC-63 test and add a headers test without "IP del registro" in `stratus-ui/src/features/dns/RecordTable.test.tsx` (REQ-23, REQ-43, AC-63)
+- [x] T251 Remove the "IP del registro" column from `stratus-ui/src/features/dns/RecordTable.tsx` (REQ-23, AC-58, AC-63)
+- [x] T252 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path

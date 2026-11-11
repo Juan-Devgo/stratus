@@ -150,3 +150,8 @@
 - Files: new `stratus-ui/src/components/FqdnLink.tsx`; `features/web/WebTable.{tsx,test.tsx}`; `features/dns/RecordTable.tsx`. The amended docs went in their own commit (T245).
 - Decisions: the link of `RecordTable` moved to `FqdnLink` ("-" without link, like `IpCell`), so both tables share it and the RecordTable AC-65 test covers the move.
 - Notes: UI typecheck ok, 288 tests and build ok.
+
+## Phase 28: Amendment 2026-11-11: no record IP column in the DNS records table
+- Files: `stratus-ui/src/features/dns/RecordTable.{tsx,test.tsx}`. The amended docs went in their own commit (T249).
+- Decisions: only the column goes; the API keeps `record_ip`, which still decides the checkbox and "Quitar registro". The AC-63 test now expects one copy button in the `web-a` row; a new test checks the headers.
+- Notes: UI typecheck ok, 289 tests and build ok.

@@ -126,11 +126,18 @@ describe("RecordTable", () => {
 });
 
 describe("RecordTable copy buttons and links", () => {
-  it("AC-63 IP and record IP have copy buttons; - has none", () => {
+  it("REQ-23 the table has no record IP column", () => {
     render(<RecordTable vms={[WEB_A, VM2]} busy={false} onDone={vi.fn()} />);
 
-    // web-a tiene la misma IP actual y de registro: un botón por columna.
-    expect(within(rowOf("web-a")).getAllByRole("button", { name: "Copiar 192.168.1.40" })).toHaveLength(2);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(["Seleccionar", "Nombre", "Tipo", "Estado", "IP", "Registro", "Acciones"]);
+  });
+
+  it("AC-63 the IP has a copy button; - has none", () => {
+    render(<RecordTable vms={[WEB_A, VM2]} busy={false} onDone={vi.fn()} />);
+
+    // Solo la IP actual: la IP del registro ya no se muestra (REQ-23).
+    expect(within(rowOf("web-a")).getAllByRole("button", { name: "Copiar 192.168.1.40" })).toHaveLength(1);
     expect(within(rowOf("vm2")).queryByRole("button", { name: /^Copiar/ })).not.toBeInTheDocument();
   });
 

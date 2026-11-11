@@ -34,7 +34,8 @@ function kindLabel(vm: DnsVm): string {
   return KIND_LABELS[vm.kind] || ROLE_LABELS[vm.role];
 }
 
-// Las VMs que no son el servidor DNS, con su registro A. Las que no tienen registro llevan una
+// Las VMs que no son el servidor DNS, con su registro A (el FQDN; la IP guardada se ve en la pestaña
+// "Zona", REQ-23 y REQ-46: record_ip solo decide la casilla y "Quitar registro"). Las que no tienen registro llevan una
 // casilla para "Agregar registros" (REQ-23), que muestra el resultado de cada una; las que lo
 // tienen, "Quitar registro" con confirmación (REQ-24). Cada IP lleva su botón de copiar (REQ-43)
 // y cada FQDN es un enlace que se abre en otra pestaña (REQ-45).
@@ -101,7 +102,6 @@ export function RecordTable({ vms, busy, onDone }: Props) {
               <TableHead>Estado</TableHead>
               <TableHead>IP</TableHead>
               <TableHead>Registro</TableHead>
-              <TableHead>IP del registro</TableHead>
               <TableHead>Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -127,9 +127,6 @@ export function RecordTable({ vms, busy, onDone }: Props) {
                 <TableCell>
                   {/* El enlace solo resuelve si el equipo del navegador usa el servidor DNS (REQ-45). */}
                   <FqdnLink fqdn={vm.fqdn} />
-                </TableCell>
-                <TableCell>
-                  <IpCell ip={vm.record_ip} />
                 </TableCell>
                 <TableCell>
                   {vm.record_ip !== "" && (

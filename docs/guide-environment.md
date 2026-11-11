@@ -107,6 +107,12 @@ Choose `APP_DNS_IP` **outside the DHCP pool** of the LAN router, on the network 
 `APP_BRIDGE_ADAPTER`. Before creating the VM, `create-dns.sh` sends one ARP probe and one ping to that
 address and stops with "La IP del servidor DNS ya está en uso" if anything answers (AC-25).
 
+Records hold only addresses inside the subnet of `APP_DNS_IP` (005 REQ-22). A VM whose address is
+internal (`10.10.N.x`) or NAT (`10.0.2.x`) gets no record, and the servers of a load balancer are never
+registered. For that reason `APP_DNS_IP` must stay outside `10.10.0.0/16`, the range of the load
+balancer networks. After upgrading, one click on "Actualizar registros" removes the records stored
+with internal addresses (REQ-27, AC-58).
+
 ```bash
 APP_DNS_BASE_DISK=/abs/path/debian-13-dns-base.vdi
 APP_DNS_IP=192.168.1.53/24

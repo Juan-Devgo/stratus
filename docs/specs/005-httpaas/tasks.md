@@ -240,6 +240,6 @@
 - [x] T201 Run `cd stratus-srv && go test ./...` and `cd stratus-ui && pnpm typecheck && pnpm test`, then commit the phase staging only its files by path, never `stratus-srv/.gitignore` (REQ-6, REQ-23)
 
 ## Phase 20: Amendment verification
-- [ ] T202 Add to `docs/guide-environment.md` that records hold only addresses inside the subnet of `APP_DNS_IP`, that `APP_DNS_IP` must stay outside `10.10.0.0/16`, and that after upgrading one "Actualizar registros" removes the records stored with internal addresses (REQ-22, REQ-27, AC-58)
-- [ ] T203 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/`, fix every failure, then commit the phase staging only its files by path, never `stratus-srv/.gitignore` (REQ-34, REQ-39, AC-55, AC-56)
+- [x] T202 Add to `docs/guide-environment.md` that records hold only addresses inside the subnet of `APP_DNS_IP`, that `APP_DNS_IP` must stay outside `10.10.0.0/16`, and that after upgrading one "Actualizar registros" removes the records stored with internal addresses (REQ-22, REQ-27, AC-58)
+- [x] T203 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/`, fix every failure, then commit the phase staging only its files by path, never `stratus-srv/.gitignore` (REQ-34, REQ-39, AC-55, AC-56)
 - [ ] T204 Run the real-host demo of the amendment: AC-27 (assigned web server skipped), AC-31, AC-37, AC-57, AC-58, AC-59, AC-60, AC-61 and AC-62 (REQ-20, REQ-22, REQ-23, REQ-26, REQ-27, REQ-41, REQ-42, AC-27, AC-31, AC-37, AC-57, AC-58, AC-59, AC-60, AC-61, AC-62)

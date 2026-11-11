@@ -101,7 +101,10 @@ jump_drop "$lb" "$vm" || exit 15
 #     salir con 5).
 # 4.2 "VBoxManage modifyvm <vm> --nic2 none --nic1 bridged --bridgeadapter1 <bridge_adapter>". Si
 #     falla, salir con 4.
-# 4.3 "VBoxManage startvm <vm> --type headless" solo si estaba encendida.
+# 4.3 "VBoxManage guestproperty delete" de /VirtualBox/GuestInfo/Net/0/V4/IP y /Net/1/V4/IP, para que
+#     ninguna lectura posterior tome la dirección interna o NAT de antes (REQ-42). Un fallo se ignora:
+#     la propiedad puede no existir.
+# 4.4 "VBoxManage startvm <vm> --type headless" solo si estaba encendida.
 
 was_running=no
 state="$(VBoxManage showvminfo "$vm" --machinereadable 2>/dev/null | sed -n 's/^VMState="\(.*\)"$/\1/p' || true)"
@@ -112,6 +115,9 @@ if [[ "$was_running" == yes ]]; then
 fi
 VBoxManage modifyvm "$vm" --nic2 none --nic1 bridged --bridgeadapter1 "$bridge_adapter" >&2 ||
   fail 4 "No se pudo devolver la VM $vm a la red en puente"
+for prop in /VirtualBox/GuestInfo/Net/0/V4/IP /VirtualBox/GuestInfo/Net/1/V4/IP; do
+  VBoxManage guestproperty delete "$vm" "$prop" >&2 || true
+done
 if [[ "$was_running" == yes ]]; then
   VBoxManage startvm "$vm" --type headless >&2 || fail 4 "No se pudo encender la VM $vm"
 fi

@@ -22,6 +22,22 @@ func refreshWarning(vm string) string {
 	return fmt.Sprintf("Operación completada; no se pudo actualizar el registro DNS de %s, use Actualizar registros", vm)
 }
 
+// serverRecordNotice es el aviso de REQ-41 cuando asignar una VM a un balanceador le quitó el registro.
+func serverRecordNotice(vm string) string {
+	return fmt.Sprintf("Registro DNS de %s quitado: los servidores de un balanceador no se registran", vm)
+}
+
+// noRecordNotice es el aviso de REQ-42 tras quitar una VM de un balanceador: no se le agrega registro.
+func noRecordNotice(vm string) string {
+	return fmt.Sprintf("%s no tiene registro DNS; agréguelo desde DNS", vm)
+}
+
+// dropRecordWarning es la advertencia de REQ-41 cuando la operación terminó bien pero la zona no
+// pudo quitar el registro de la VM.
+func dropRecordWarning(vm string) string {
+	return fmt.Sprintf("Operación completada; no se pudo quitar el registro DNS de %s, use Actualizar registros", vm)
+}
+
 // joinWarnings une dos advertencias con "\n" en el único campo warning de la respuesta.
 func joinWarnings(a, b string) string {
 	if a == "" {
@@ -368,21 +384,43 @@ func (s *DNSService) AfterVMDeleted(ctx context.Context, vm string) string {
 	} else if !has {
 		return ""
 	}
-	if err := s.dnsRepo.DeleteRecord(ctx, vm); err != nil {
-		s.logger.Printf("no se pudo borrar el registro DNS de %s: %v", vm, err)
+	if _, err := s.dropRecordRowFirst(ctx, dns, vm); err != nil {
+		s.logger.Printf("no se pudo quitar el registro DNS de %s: %v", vm, err)
 		return deleteRecordWarning
+	}
+	return ""
+}
+
+// DropServerRecord es el hook de asignar y quitar un servidor (REQ-41, REQ-42): sin servidor DNS o
+// sin registro de la VM no hace nada; si no, borra la fila y aplica el conjunto restante como su
+// propia operación remove_record. removed indica si la fila se borró, aunque la zona no cambie y
+// err no sea nil; el próximo refresco la corrige.
+func (s *DNSService) DropServerRecord(ctx context.Context, vm string) (removed bool, err error) {
+	dns, ok, err := s.dnsRepo.Server(ctx)
+	if err != nil || !ok || vm == dns {
+		return false, err
+	}
+	if _, has, err := s.dnsRepo.Record(ctx, vm); err != nil || !has {
+		return false, err
+	}
+	return s.dropRecordRowFirst(ctx, dns, vm)
+}
+
+// dropRecordRowFirst borra primero la fila del registro y después aplica el conjunto restante con
+// remove-record.sh (REQ-41): un fallo de la zona nunca deja guardado el registro de una VM que no
+// debe tenerlo. Un rechazo antes del script (bloqueo o configuración) queda como fila fallida.
+func (s *DNSService) dropRecordRowFirst(ctx context.Context, dns, vm string) (removed bool, err error) {
+	if err := s.dnsRepo.DeleteRecord(ctx, vm); err != nil {
+		return false, err
 	}
 	err = ValidateDNSConfig(s.cfg)
 	if err == nil {
 		err = s.applyRemove(ctx, dns, vm, nil)
 	}
-	if err != nil {
-		if errors.Is(err, ErrOperationInProgress) || errors.Is(err, ErrDNSConfigIncomplete) {
-			s.recordRejected(ctx, "remove_record", dns, "dns/remove-record.sh", []string{vm}, err)
-		}
-		return deleteRecordWarning
+	if errors.Is(err, ErrOperationInProgress) || errors.Is(err, ErrDNSConfigIncomplete) {
+		s.recordRejected(ctx, "remove_record", dns, "dns/remove-record.sh", []string{vm}, err)
 	}
-	return ""
+	return true, err
 }
 
 // recordRejected guarda como fila fallida del historial de dns una actualización de los hooks que

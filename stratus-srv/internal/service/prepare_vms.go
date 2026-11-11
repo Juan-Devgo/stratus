@@ -123,9 +123,11 @@ func (s *PrepareService) CreateVM(ctx context.Context, in CreateVMInput) (string
 
 // ActionResult es el resultado de una operación que termina bien pero puede dejar un paso
 // posterior pendiente: el mensaje de éxito y, si ese paso falló (actualizar las IPs del balanceador,
-// 004 REQ-14, o los registros DNS, 005 REQ-26), una advertencia.
+// 004 REQ-14, o los registros DNS, 005 REQ-26), una advertencia. Notice informa algo que no es un
+// fallo (005 REQ-41, REQ-42): el registro DNS que quedó quitado o ausente.
 type ActionResult struct {
 	Message string `json:"message"`
+	Notice  string `json:"notice,omitempty"`
 	Warning string `json:"warning,omitempty"`
 }
 

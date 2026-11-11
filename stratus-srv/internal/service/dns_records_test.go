@@ -592,3 +592,70 @@ func TestAC58_RefreshRemovesServerAndNonLANRecords(t *testing.T) {
 		t.Errorf("dns_records = %+v, se esperaba %+v", recs, wantRecs)
 	}
 }
+
+// AC-37, REQ-41, REQ-34: DropServerRecord borra la fila antes de llamar al script y aplica el
+// conjunto restante como su propia operación remove_record; sin registro o sin servidor DNS no
+// hace nada; con el servidor DNS bloqueado la fila ya no está y queda una fila rechazada.
+func TestAC37_DropServerRecord(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	ctx := context.Background()
+	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"},
+		{VM: "vm2", IP: "192.168.1.42"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := env.svc.DropServerRecord(ctx, "vm1")
+
+	if err != nil || !removed {
+		t.Fatalf("DropServerRecord = %v, %v; se esperaba true, nil", removed, err)
+	}
+	want := []string{"dns1", "stratus.lan", "192.168.1.53/24", "vm1", "vm2,192.168.1.42"}
+	if calls := runner.callsTo("dns/remove-record.sh"); len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+		t.Errorf("remove-record.sh = %+v, se esperaba %v", calls, want)
+	}
+	if recs := env.records(t); len(recs) != 1 || recs[0].VM != "vm2" {
+		t.Errorf("dns_records = %+v, se esperaba solo vm2", recs)
+	}
+	if op := env.lastDNSOperation(t); op.Operation != "remove_record" || op.Result != "ok" {
+		t.Errorf("historial = %+v", op)
+	}
+
+	// Sin registro: no llama a nada
+	if removed, err := env.svc.DropServerRecord(ctx, "vm1"); removed || err != nil {
+		t.Errorf("sin registro: %v, %v; se esperaba false, nil", removed, err)
+	}
+	if n := len(runner.callsTo("dns/remove-record.sh")); n != 1 {
+		t.Errorf("remove-record.sh se llamó %d veces, se esperaba 1", n)
+	}
+
+	// Servidor DNS bloqueado: la fila se borra igual y el rechazo queda en el historial
+	if !env.locks.TryLock("dns1") {
+		t.Fatal("no se pudo bloquear dns1")
+	}
+	defer env.locks.Unlock("dns1")
+	removed, err = env.svc.DropServerRecord(ctx, "vm2")
+	if !errors.Is(err, ErrOperationInProgress) || !removed {
+		t.Errorf("bloqueado: %v, %v; se esperaba true, ErrOperationInProgress", removed, err)
+	}
+	if recs := env.records(t); len(recs) != 0 {
+		t.Errorf("dns_records = %+v, se esperaba vacío", recs)
+	}
+	if op := env.lastDNSOperation(t); op.Operation != "remove_record" || op.Result != "error" {
+		t.Errorf("historial = %+v, se esperaba remove_record fallido", op)
+	}
+}
+
+// REQ-41: sin servidor DNS, DropServerRecord no hace nada.
+func TestAC37_DropServerRecordWithoutDNS(t *testing.T) {
+	runner := &fakeRunner{results: map[string]RunResult{}}
+	env := newDNSEnv(t, runner)
+
+	removed, err := env.svc.DropServerRecord(context.Background(), "vm1")
+
+	if removed || err != nil {
+		t.Errorf("DropServerRecord = %v, %v; se esperaba false, nil", removed, err)
+	}
+	if n := len(runner.calls); n != 0 {
+		t.Errorf("el runner se llamó %d veces, se esperaba 0", n)
+	}
+}

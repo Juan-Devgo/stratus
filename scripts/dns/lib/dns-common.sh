@@ -24,7 +24,7 @@
 #                                          imprime la zona completa (REQ-22)
 #   apply_zone <dns> <dominio> [--if-changed]
 #                                          aplica la zona de stdin en el servidor DNS (REQ-28)
-#   wait_ips <vm...>                       imprime "<vm> <ip|->" tras esperar su IPv4 (REQ-27)
+#   wait_ips <ip/prefijo> <vm...>          imprime "<vm> <ip|->" tras esperar su IPv4 de la LAN (REQ-27)
 #   resolver_program                       imprime el programa remoto del resolvedor (REQ-31)
 #
 # Variables de entorno:
@@ -336,13 +336,16 @@ apply_zone() {
   echo "reloaded=yes"
 }
 
-# == 7. wait_ips <vm...> (REQ-27, AC-40) ==
+# == 7. wait_ips <ip/prefijo> <vm...> (REQ-27, AC-40, AC-59) ==
 # 7.1 Por cada VM, en paralelo, sondear la IPv4 de su adaptador 1 (vm_nic_ip) hasta 60 veces con
 #     "sleep 2" entre sondeos: todas comparten la misma ventana de 120 s porque corren a la vez.
-# 7.2 Imprimir "<vm> <ip>" por VM, en el orden recibido, o "<vm> -" si no llegó una IPv4.
+# 7.2 Solo vale una IPv4 dentro de la subred del CIDR: una fuera de ella (NAT 10.0.2.15,
+#     link-local, red interna 10.10.N.x) se ignora y el sondeo sigue (REQ-22).
+# 7.3 Imprimir "<vm> <ip>" por VM, en el orden recibido, o "<vm> -" si no llegó una IPv4 de la LAN.
 
 wait_ips() {
-  local dir i vm pids=()
+  local cidr="$1" dir i vm pids=()
+  shift
   (($# > 0)) || return 0
   dir="$(mktemp -d)"
   i=0
@@ -351,7 +354,7 @@ wait_ips() {
       echo "-" >"$dir/$i"
       for ((n = 0; n < 60; n++)); do
         ip="$(vm_nic_ip "$vm" 1 2>/dev/null </dev/null)" || ip=""
-        if [[ -n "$ip" ]]; then
+        if [[ -n "$ip" ]] && ip_in_subnet "$cidr" "$ip"; then
           echo "$ip" >"$dir/$i"
           exit 0
         fi

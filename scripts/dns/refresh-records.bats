@@ -42,7 +42,7 @@ current_zone() {
   export CURRENT_ZONE
   CURRENT_ZONE="$(current_zone vm1,192.168.1.40)"
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1 vm1,192.168.1.40
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1 - vm1,192.168.1.40
 
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "vm1 192.168.1.45" ]
@@ -58,7 +58,7 @@ current_zone() {
   export CURRENT_ZONE
   CURRENT_ZONE="$(current_zone vm1,192.168.1.40 vm2,192.168.1.42)"
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,vm2 vm1,192.168.1.40 vm2,192.168.1.42
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,vm2 - vm1,192.168.1.40 vm2,192.168.1.42
 
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "vm1 192.168.1.40" ]
@@ -73,7 +73,7 @@ current_zone() {
   stub_vm_ip dns1 192.168.1.53
   stub_ip_sequence vm1 192.168.1.45
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 - vm1,192.168.1.40
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 - - vm1,192.168.1.40
 
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "vm1 192.168.1.40" ]
@@ -94,7 +94,7 @@ current_zone() {
     records+=("vm$i,192.168.1.4$i")
   done
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 "$wait" "${records[@]}"
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 "$wait" - "${records[@]}"
 
   [ "$status" -eq 0 ]
   for i in 0 1 2; do
@@ -115,7 +115,7 @@ current_zone() {
   stub_vm_ip dns1 -
   stub_ip_sequence vm1 192.168.1.45
 
-  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1 vm1,192.168.1.40
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1 - vm1,192.168.1.40
 
   [ "$status" -eq 7 ]
   ! grep -qE '^ssh ' "$CALLS" || return 1
@@ -123,23 +123,85 @@ current_zone() {
 }
 
 @test "AC-55 refresh-records sale con 2 ante argumentos inválidos sin llamar a nada" {
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 -
   [ "$status" -eq 2 ]
-  run "$SCRIPT" DNS_1 stratus.lan 192.168.1.53 - vm1,192.168.1.40
+  run "$SCRIPT" DNS_1 stratus.lan 192.168.1.53/24 - - vm1,192.168.1.40
   [ "$status" -eq 2 ]
   run "$SCRIPT" dns1 Stratus_Lan 192.168.1.53 - vm1,192.168.1.40
   [ "$status" -eq 2 ]
   run "$SCRIPT" dns1 stratus.lan 192.168.1.999 - vm1,192.168.1.40
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 vm1,,vm2 vm1,192.168.1.40
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,,vm2 - vm1,192.168.1.40
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 VM1 vm1,192.168.1.40
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 VM1 - vm1,192.168.1.40
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 - vm1
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 - - vm1
   [ "$status" -eq 2 ]
-  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 - dns1,192.168.1.40
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 - - dns1,192.168.1.40
   [ "$status" -eq 2 ]
-  run env -u APP_SSH_KEY_PATH "$SCRIPT" dns1 stratus.lan 192.168.1.53 - vm1,192.168.1.40
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53 - - vm1,192.168.1.40
+  [ "$status" -eq 2 ]
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 - VM1 vm1,192.168.1.40
+  [ "$status" -eq 2 ]
+  run "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 - vm1,,web-a vm1,192.168.1.40
+  [ "$status" -eq 2 ]
+  run env -u APP_SSH_KEY_PATH "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 - - vm1,192.168.1.40
   [ "$status" -eq 2 ]
   [ ! -s "$CALLS" ]
+}
+
+@test "AC-58 refresh-records quita los registros de drop_vms y los que no están en la LAN" {
+  stub_vm_ip dns1 192.168.1.53
+  stub_ip_sequence vm1 192.168.1.40
+  stub_ip_sequence web-a 192.168.1.60
+  stub_vm_power vm3 poweroff
+  export CURRENT_ZONE
+  CURRENT_ZONE="$(current_zone vm1,192.168.1.40 vm3,10.10.2.15 web-a,10.10.1.11)"
+
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1,web-a web-a \
+    vm1,192.168.1.40 vm3,10.10.2.15 web-a,10.10.1.11
+
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "vm1 192.168.1.40" ]
+  [ "${lines[1]}" = "removed=vm3" ]
+  [ "${lines[2]}" = "removed=web-a" ]
+  [ "${lines[-1]}" = "reloaded=yes" ]
+  [ "${#lines[@]}" -eq 4 ]
+  [[ "$stderr" == *"Registros quitados: vm3, web-a"* ]]
+  zone="$(zone_upload)"
+  [[ "$zone" == *"vm1 IN A 192.168.1.40"* ]]
+  [[ "$zone" != *"web-a IN A"* && "$zone" != *"vm3 IN A"* ]]
+  grep -qx 'rndc reload stratus.lan' "$REMOTE"
+  # web-a está en drop_vms: no se sondea
+  [ ! -s "$BATS_TEST_TMPDIR/seq-web-a.count" ]
+}
+
+@test "AC-59 refresh-records conserva la IP guardada de la LAN si la VM informa una de fuera" {
+  stub_vm_ip dns1 192.168.1.53
+  stub_ip_sequence vm1 10.0.2.15
+  export CURRENT_ZONE
+  CURRENT_ZONE="$(current_zone vm1,192.168.1.40)"
+
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 vm1 - vm1,192.168.1.40
+
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "vm1 192.168.1.40" ]
+  [ "${lines[-1]}" = "reloaded=no" ]
+  [ "${#lines[@]}" -eq 2 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/seq-vm1.count")" -eq 60 ]
+  ! grep -q 'rndc' "$REMOTE" || return 1
+}
+
+@test "AC-57 refresh-records sube la zona si tiene una línea sin registro guardado" {
+  stub_vm_ip dns1 192.168.1.53
+  export CURRENT_ZONE
+  CURRENT_ZONE="$(current_zone vm1,192.168.1.40 web-a,192.168.1.99)"
+
+  run --separate-stderr "$SCRIPT" dns1 stratus.lan 192.168.1.53/24 - - vm1,192.168.1.40
+
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "vm1 192.168.1.40" ]
+  [ "${lines[-1]}" = "reloaded=yes" ]
+  [[ "$(zone_upload)" != *"web-a IN A"* ]]
+  grep -qx 'rndc reload stratus.lan' "$REMOTE"
 }

@@ -293,7 +293,7 @@ setup() {
   stub_ip_sequence vm1 - - 192.168.1.51
   stub_ip_sequence vm2 -
 
-  run --separate-stderr wait_ips vm1 vm2
+  run --separate-stderr wait_ips 192.168.1.53/24 vm1 vm2
 
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "vm1 192.168.1.51" ]
@@ -305,7 +305,20 @@ setup() {
 }
 
 @test "AC-40 wait_ips sin VMs no imprime nada" {
-  run wait_ips
+  run wait_ips 192.168.1.53/24
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+@test "AC-59 wait_ips ignora una dirección fuera de la LAN" {
+  stub_ip_sequence vm1 10.0.2.15 192.168.1.45
+  stub_ip_sequence vm2 10.0.2.15
+
+  run --separate-stderr wait_ips 192.168.1.53/24 vm1 vm2
+
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "vm1 192.168.1.45" ]
+  [ "${lines[1]}" = "vm2 -" ]
+  [ "$(cat "$BATS_TEST_TMPDIR/seq-vm1.count")" -eq 2 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/seq-vm2.count")" -eq 60 ]
 }

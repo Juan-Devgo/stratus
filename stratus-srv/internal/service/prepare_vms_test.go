@@ -1141,7 +1141,7 @@ func TestAC36_StartVMRefreshesRecord(t *testing.T) {
 		t.Errorf("scripts = %v", order)
 	}
 	calls := runner.callsTo("dns/refresh-records.sh")
-	want := []string{"dns1", testDomain, "192.168.1.53", "vm1", "vm1,192.168.1.40"}
+	want := []string{"dns1", testDomain, "192.168.1.53/24", "vm1", "-", "vm1,192.168.1.40"}
 	if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
 		t.Errorf("refresh-records.sh = %+v, se esperaba %v", calls, want)
 	}
@@ -1177,7 +1177,7 @@ func TestAC36_StartDNSRefreshesAll(t *testing.T) {
 		t.Fatalf("StartVM = %+v, %v", res, err)
 	}
 	calls := runner.callsTo("dns/refresh-records.sh")
-	want := []string{"dns1", testDomain, "192.168.1.53", "lb1,vm1", "lb1,192.168.1.41", "vm1,192.168.1.40"}
+	want := []string{"dns1", testDomain, "192.168.1.53/24", "lb1,vm1", "-", "lb1,192.168.1.41", "vm1,192.168.1.40"}
 	if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
 		t.Errorf("refresh-records.sh = %+v, se esperaba %v", calls, want)
 	}

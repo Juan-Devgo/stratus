@@ -439,7 +439,7 @@ func TestAC37_AssignAndRemoveRefreshRecord(t *testing.T) {
 	if err != nil || res.Message != "Servidor server1 (web-a) asignado a lb1" || res.Warning != "" {
 		t.Fatalf("AssignServer = %+v, %v", res, err)
 	}
-	want := []string{"dns1", testDomain, "192.168.1.53", "web-a", "web-a,192.168.1.40"}
+	want := []string{"dns1", testDomain, "192.168.1.53/24", "web-a", "web-a", "web-a,192.168.1.40"}
 	if calls := runner.callsTo("dns/refresh-records.sh"); len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
 		t.Errorf("refresh-records.sh = %+v, se esperaba %v", calls, want)
 	}

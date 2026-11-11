@@ -545,7 +545,7 @@ func TestAC39_RefreshStoresPrintedIPs(t *testing.T) {
 				t.Fatalf("Refresh = %q, %v; se esperaba %q", msg, err, tc.msg)
 			}
 			calls := runner.callsTo("dns/refresh-records.sh")
-			want := []string{"dns1", "stratus.lan", "192.168.1.53", "lb1,vm1", "lb1,192.168.1.41", "vm1,192.168.1.40"}
+			want := []string{"dns1", "stratus.lan", "192.168.1.53/24", "lb1,vm1", "-", "lb1,192.168.1.41", "vm1,192.168.1.40"}
 			if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
 				t.Errorf("llamadas = %+v, se esperaba %v", calls, want)
 			}
@@ -557,5 +557,38 @@ func TestAC39_RefreshStoresPrintedIPs(t *testing.T) {
 				t.Errorf("historial = %+v", op)
 			}
 		})
+	}
+}
+
+// AC-58, REQ-62: Refresh pasa como drop_vms los servidores asignados a un balanceador, borra de
+// dns_records los registros que el script informa como quitados y los nombra en el mensaje.
+func TestAC58_RefreshRemovesServerAndNonLANRecords(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	runner.results["dns/refresh-records.sh"] = RunResult{
+		Stdout: []byte("lb1 192.168.1.41\nvm1 192.168.1.45\nremoved=vm2\nremoved=vm3\nreloaded=yes\n")}
+	ctx := context.Background()
+	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"},
+		{VM: "vm2", IP: "10.10.1.11"}, {VM: "vm3", IP: "10.0.2.15"}, {VM: "lb1", IP: "192.168.1.41"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.lbs.InsertServer(ctx, repository.LBServer{LB: "lb1", Name: "server1", VM: "vm2",
+		Port: 80, LastIP: "10.10.1.11", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := env.svc.Refresh(ctx)
+
+	if want := "Registros actualizados; registros quitados: vm2, vm3"; err != nil || msg != want {
+		t.Fatalf("Refresh = %q, %v; se esperaba %q", msg, err, want)
+	}
+	calls := runner.callsTo("dns/refresh-records.sh")
+	want := []string{"dns1", "stratus.lan", "192.168.1.53/24", "lb1,vm1,vm2,vm3", "vm2",
+		"lb1,192.168.1.41", "vm1,192.168.1.40", "vm2,10.10.1.11", "vm3,10.0.2.15"}
+	if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+		t.Errorf("llamadas = %+v, se esperaba %v", calls, want)
+	}
+	wantRecs := []repository.DNSRecord{{VM: "lb1", IP: "192.168.1.41"}, {VM: "vm1", IP: "192.168.1.45"}}
+	if recs := env.records(t); !reflect.DeepEqual(recs, wantRecs) {
+		t.Errorf("dns_records = %+v, se esperaba %+v", recs, wantRecs)
 	}
 }

@@ -186,14 +186,21 @@ func (s *DNSService) Refresh(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	reloaded, err := s.refresh(ctx, dns, "")
+	reloaded, removed, err := s.refresh(ctx, dns, "")
 	if err != nil {
 		return "", err
 	}
-	if !reloaded {
-		return "Registros sin cambios", nil
+	msg := "Registros sin cambios"
+	if reloaded {
+		msg = "Registros actualizados"
 	}
-	return "Registros actualizados", nil
+	if len(removed) > 0 {
+		if !reloaded {
+			msg = "Registros actualizados"
+		}
+		msg += "; registros quitados: " + strings.Join(removed, ", ")
+	}
+	return msg, nil
 }
 
 // RefreshVM es el hook de iniciar (001), asignar y quitar (004) una VM (REQ-26): sin servidor DNS o
@@ -223,7 +230,7 @@ func (s *DNSService) RefreshAll(ctx context.Context) error {
 func (s *DNSService) refreshHook(ctx context.Context, dns, wait string) error {
 	err := ValidateDNSConfig(s.cfg)
 	if err == nil {
-		_, err = s.refresh(ctx, dns, wait)
+		_, _, err = s.refresh(ctx, dns, wait)
 	}
 	if errors.Is(err, ErrOperationInProgress) || errors.Is(err, ErrDNSConfigIncomplete) {
 		args := []string{"-"}
@@ -236,48 +243,70 @@ func (s *DNSService) refreshHook(ctx context.Context, dns, wait string) error {
 }
 
 // refresh ejecuta refresh-records.sh con el bloqueo del servidor DNS y todos los registros
-// guardados. wait es la VM que se espera; vacío espera a todas las VMs con registro. Si termina bien
-// guarda las IPs impresas y devuelve si la zona se recargó.
-func (s *DNSService) refresh(ctx context.Context, dns, wait string) (bool, error) {
+// guardados. wait es la VM que se espera; vacío espera a todas las VMs con registro. Los registros
+// de servidores asignados a un balanceador van como drop_vms y el script los quita junto con los
+// que no están en la LAN (REQ-62). Si termina bien guarda las IPs impresas, borra los registros
+// quitados y devuelve si la zona se recargó y cuáles VMs se quitaron.
+func (s *DNSService) refresh(ctx context.Context, dns, wait string) (reloaded bool, removed []string, err error) {
 	recs, err := s.dnsRepo.Records(ctx)
 	if err != nil {
-		return false, err
+		return false, nil, err
+	}
+	_, serverLB, err := lbTopology(ctx, s.lbs)
+	if err != nil {
+		return false, nil, err
+	}
+	names := make([]string, len(recs))
+	var drop []string
+	for i, rec := range recs {
+		names[i] = rec.VM
+		if _, assigned := serverLB[rec.VM]; assigned {
+			drop = append(drop, rec.VM)
+		}
 	}
 	if wait == "" {
-		names := make([]string, len(recs))
-		for i, rec := range recs {
-			names[i] = rec.VM
-		}
 		wait = strings.Join(names, ",")
 	}
 	if wait == "" {
 		wait = "-"
 	}
-	args := append([]string{dns, s.cfg.Domain, s.cfg.Address(), wait}, recordSpecs(recs)...)
-	reloaded := false
+	dropArg := "-"
+	if len(drop) > 0 {
+		dropArg = strings.Join(drop, ",")
+	}
+	args := append([]string{dns, s.cfg.Domain, s.cfg.IP, wait, dropArg}, recordSpecs(recs)...)
 	save := func(ctx context.Context, res RunResult) error {
 		var printed []repository.DNSRecord
-		printed, reloaded = parseRecordRefresh(res.Stdout)
-		return s.dnsRepo.UpdateRecordIPs(ctx, printed)
+		printed, removed, reloaded = parseRecordRefresh(res.Stdout)
+		if err := s.dnsRepo.UpdateRecordIPs(ctx, printed); err != nil {
+			return err
+		}
+		return s.dnsRepo.DeleteRecords(ctx, removed)
 	}
 	_, err = s.ops.runLocked(ctx, "refresh_records", dns, []string{dns}, "dns/refresh-records.sh", args, true, save)
-	return reloaded, mapDNSError(err)
+	return reloaded, removed, mapDNSError(err)
 }
 
-// parseRecordRefresh lee la salida de refresh-records.sh: "<vm> <ip>" por registro y la línea
-// "reloaded=yes|no".
-func parseRecordRefresh(stdout []byte) (recs []repository.DNSRecord, reloaded bool) {
+// parseRecordRefresh lee la salida de refresh-records.sh: "<vm> <ip>" por registro conservado,
+// "removed=<vm>" por registro quitado y la línea "reloaded=yes|no".
+func parseRecordRefresh(stdout []byte) (recs []repository.DNSRecord, removed []string, reloaded bool) {
 	for line := range strings.Lines(string(stdout)) {
 		line = strings.TrimSpace(line)
 		if value, ok := strings.CutPrefix(line, "reloaded="); ok {
 			reloaded = value == "yes"
 			continue
 		}
+		if vm, ok := strings.CutPrefix(line, "removed="); ok {
+			if vm != "" {
+				removed = append(removed, vm)
+			}
+			continue
+		}
 		if vm, ip, ok := strings.Cut(line, " "); ok && vm != "" && ip != "" {
 			recs = append(recs, repository.DNSRecord{VM: vm, IP: ip})
 		}
 	}
-	return recs, reloaded
+	return recs, removed, reloaded
 }
 
 // recordsServer devuelve el servidor DNS para una operación de registros: sin servidor es

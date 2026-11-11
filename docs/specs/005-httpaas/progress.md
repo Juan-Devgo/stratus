@@ -135,3 +135,8 @@
 - Files: new `stratus-ui/src/components/ui/tabs.tsx` (shadcn CLI), `features/dns/ZoneTable.{tsx,test.tsx}`; `features/dns/{types,api}.ts` (`ZoneRecord`, `getZone`); `routes/Dns.{tsx,test.tsx}`.
 - Decisions: the tabs panel unmounts when hidden, so `ZoneTable` reads the zone on mount, which is when "Zona" opens. `Dns.reload` increments `zoneVersion`; `ZoneTable` reads again on each new version, so an operation with "Zona" open re-reads it and a closed tab does nothing. `ZoneTable` drops a response that arrives after a newer read. The A values use `IpCell`, so they get the copy button. A failed read clears the table and shows the error in an `Alert`.
 - Notes: the spinner inside "Recargar" adds "Cargando" to its accessible name while reading, so the loading test matches `/Recargar/`. The AC-67 route test uses "Actualizar registros" as the operation, since add and remove live in the hidden "VMs" tab. UI typecheck ok, 287 tests and build ok.
+
+## Phase 25: Amendment 2026-11-11 verification
+- Files: none beyond `tasks.md` and this file.
+- Decisions: none.
+- Notes: T238 green: gofmt clean, golangci-lint 0 issues, `go test ./...` ok, `bats -r -j 8 scripts/dns/` 90 ok / 0 not ok, UI typecheck, 287 tests and `pnpm build` ok. T239 (real-host demo AC-70) is manual and stays unchecked, like T149, T150 and T204: it needs VirtualBox, the DNS server VM and `APP_DNS_*`.

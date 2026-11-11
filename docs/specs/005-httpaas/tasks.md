@@ -287,5 +287,5 @@ Removed on 2026-11-11 by Phase 21.
 - [x] T237 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path
 
 ## Phase 25: Amendment 2026-11-11 verification
-- [ ] T238 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/dns/`, and fix every failure (REQ-39, AC-55, AC-56)
+- [x] T238 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/dns/`, and fix every failure (REQ-39, AC-55, AC-56)
 - [ ] T239 Run the real-host demo AC-70 (REQ-46, AC-70)

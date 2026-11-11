@@ -4,7 +4,7 @@ import type { CreateVmInput } from "@/features/prepare/validation";
 import type { ServiceResult } from "@/features/services/types";
 import type { UnitAction } from "@/features/web/types";
 
-import type { DnsOverview, RecordResult } from "./types";
+import type { DnsOverview, RecordResult, ZoneRecord } from "./types";
 
 // Servidor DNS y demás VMs con su registro (REQ-17, REQ-23).
 export function getDnsOverview(): Promise<DnsOverview> {
@@ -45,6 +45,12 @@ export function removeRecord(vm: string): Promise<string> {
 // Actualiza las IPs de todos los registros; la zona solo se recarga si cambió (REQ-27).
 export function refreshRecords(): Promise<string> {
   return operation("POST", "/api/dns/records/refresh");
+}
+
+// Registros que sirve el servidor DNS, leídos de su archivo de zona (REQ-46).
+export async function getZone(): Promise<ZoneRecord[]> {
+  const data = await request<{ records: ZoneRecord[] }>("GET", "/api/dns/zone");
+  return data.records;
 }
 
 // Últimas 50 operaciones del módulo, la más reciente primero (REQ-36).

@@ -278,13 +278,13 @@ Removed on 2026-11-11 by Phase 21.
 - [x] T230 Run `cd stratus-ui && pnpm typecheck && pnpm test`, then commit the phase staging only its files by path
 
 ## Phase 24: Amendment 2026-11-11: zone tab (US-11)
-- [ ] T231 Add shadcn `tabs` with the shadcn CLI in `stratus-ui/src/components/ui/tabs.tsx` (REQ-46, REQ-40)
-- [ ] T232 Add `ZoneRecord` to `stratus-ui/src/features/dns/types.ts` and `getZone` to `stratus-ui/src/features/dns/api.ts` (REQ-46)
-- [ ] T233 Write the AC-66, AC-67, AC-68 and empty-zone tests in `stratus-ui/src/features/dns/ZoneTable.test.tsx` (REQ-46, REQ-47, REQ-49, AC-66, AC-67, AC-68)
-- [ ] T234 Implement `ZoneTable` in `stratus-ui/src/features/dns/ZoneTable.tsx` (REQ-43, REQ-46, REQ-47, REQ-49, AC-66, AC-67, AC-68)
-- [ ] T235 Write the tab tests ("VMs" default, "Zona" reads the zone, an operation with the tab open reads it again) in `stratus-ui/src/routes/Dns.test.tsx` (REQ-46, REQ-47, AC-66, AC-67)
-- [ ] T236 Add the tabs to the "Registros" card in `stratus-ui/src/routes/Dns.tsx` (REQ-46, REQ-47, AC-66, AC-67)
-- [ ] T237 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path
+- [x] T231 Add shadcn `tabs` with the shadcn CLI in `stratus-ui/src/components/ui/tabs.tsx` (REQ-46, REQ-40)
+- [x] T232 Add `ZoneRecord` to `stratus-ui/src/features/dns/types.ts` and `getZone` to `stratus-ui/src/features/dns/api.ts` (REQ-46)
+- [x] T233 Write the AC-66, AC-67, AC-68 and empty-zone tests in `stratus-ui/src/features/dns/ZoneTable.test.tsx` (REQ-46, REQ-47, REQ-49, AC-66, AC-67, AC-68)
+- [x] T234 Implement `ZoneTable` in `stratus-ui/src/features/dns/ZoneTable.tsx` (REQ-43, REQ-46, REQ-47, REQ-49, AC-66, AC-67, AC-68)
+- [x] T235 Write the tab tests ("VMs" default, "Zona" reads the zone, an operation with the tab open reads it again) in `stratus-ui/src/routes/Dns.test.tsx` (REQ-46, REQ-47, AC-66, AC-67)
+- [x] T236 Add the tabs to the "Registros" card in `stratus-ui/src/routes/Dns.tsx` (REQ-46, REQ-47, AC-66, AC-67)
+- [x] T237 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path
 
 ## Phase 25: Amendment 2026-11-11 verification
 - [ ] T238 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/dns/`, and fix every failure (REQ-39, AC-55, AC-56)

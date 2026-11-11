@@ -41,6 +41,11 @@ const HISTORY = [
   },
 ];
 
+const ZONE = [
+  { type: "NS", name: "stratus.lan", value: "dns1.stratus.lan.", ttl: 60 },
+  { type: "A", name: "web-a.stratus.lan", value: "192.168.1.40", ttl: 60 },
+];
+
 // Respuestas del backend falso; cada prueba cambia lo que necesita.
 let overview: unknown;
 let calls: string[] = [];
@@ -62,6 +67,12 @@ function mockApi() {
     if (url === "/api/dns/server" && init?.method === "DELETE") {
       overview = { server: null, vms: [{ ...WEB_A, fqdn: "", record_ip: "" }], list_error: "" };
       return jsonResponse({ message: "Servidor DNS dns1 eliminado junto con su disco" });
+    }
+    if (url === "/api/dns/records/refresh" && init?.method === "POST") {
+      return jsonResponse({ message: "Registros actualizados" });
+    }
+    if (url === "/api/dns/zone") {
+      return jsonResponse({ records: ZONE });
     }
     throw new Error(`fetch inesperado: ${url}`);
   });
@@ -114,6 +125,41 @@ describe("Dns", () => {
 
     await user.click(buttons[1]);
     expect(await screen.findByText("La IP 192.168.1.53 ya está en uso")).toBeInTheDocument();
+  });
+
+  it("REQ-46 the records card opens on the VMs tab and does not read the zone", async () => {
+    mockApi();
+    render(<Dns />);
+
+    expect(await screen.findByText("web-a.stratus.lan")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "VMs" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Zona" })).toHaveAttribute("aria-selected", "false");
+    expect(calls).not.toContain("GET /api/dns/zone");
+  });
+
+  it("AC-66 the Zona tab reads the zone and lists its records", async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<Dns />);
+
+    await user.click(await screen.findByRole("tab", { name: "Zona" }));
+
+    expect(await screen.findByText("dns1.stratus.lan.")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "TTL" })).toBeInTheDocument();
+    expect(calls.filter((call) => call === "GET /api/dns/zone")).toHaveLength(1);
+  });
+
+  it("AC-67 an operation with the Zona tab open reads the zone again", async () => {
+    mockApi();
+    const user = userEvent.setup();
+    render(<Dns />);
+
+    await user.click(await screen.findByRole("tab", { name: "Zona" }));
+    expect(await screen.findByText("dns1.stratus.lan.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Actualizar registros" }));
+
+    await waitFor(() => expect(calls.filter((call) => call === "GET /api/dns/zone")).toHaveLength(2));
+    expect(calls).toContain("POST /api/dns/records/refresh");
   });
 
   it("AC-35 shows the list error from the backend", async () => {

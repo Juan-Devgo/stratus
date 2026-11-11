@@ -130,3 +130,8 @@
 - Files: new `stratus-ui/src/components/{CopyButton,IpCell}.tsx` and `CopyButton.test.tsx`; `features/web/WebTable`, `features/haproxy/{LbTable,ServerTable}`, `features/dns/RecordTable` (`.tsx` and `.test.tsx`).
 - Decisions: `CopyButton` exposes `data-copied` for the check state (tests read it; the accessible name stays "Copiar <ip>"). The fallback without `navigator.clipboard` focuses a hidden readonly `textarea` and calls `execCommand("copy")`; a false return or a rejected `writeText` shows the toast. `IpCell` renders a bare "-" so the existing "-" cell assertions still hold. The FQDN link uses the `link` button classes without `Button` (a plain `<a>`).
 - Notes: UI typecheck ok, 279 tests pass.
+
+## Phase 24: Amendment 2026-11-11: zone tab
+- Files: new `stratus-ui/src/components/ui/tabs.tsx` (shadcn CLI), `features/dns/ZoneTable.{tsx,test.tsx}`; `features/dns/{types,api}.ts` (`ZoneRecord`, `getZone`); `routes/Dns.{tsx,test.tsx}`.
+- Decisions: the tabs panel unmounts when hidden, so `ZoneTable` reads the zone on mount, which is when "Zona" opens. `Dns.reload` increments `zoneVersion`; `ZoneTable` reads again on each new version, so an operation with "Zona" open re-reads it and a closed tab does nothing. `ZoneTable` drops a response that arrives after a newer read. The A values use `IpCell`, so they get the copy button. A failed read clears the table and shows the error in an `Alert`.
+- Notes: the spinner inside "Recargar" adds "Cargando" to its accessible name while reading, so the loading test matches `/Recargar/`. The AC-67 route test uses "Actualizar registros" as the operation, since add and remove live in the hidden "VMs" tab. UI typecheck ok, 287 tests and build ok.

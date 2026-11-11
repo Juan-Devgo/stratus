@@ -3,11 +3,13 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getDnsHistory, getDnsOverview } from "@/features/dns/api";
 import { CreateDnsForm } from "@/features/dns/CreateDnsForm";
 import { DnsServerPanel } from "@/features/dns/DnsServerPanel";
 import { RecordTable } from "@/features/dns/RecordTable";
 import type { DnsOverview } from "@/features/dns/types";
+import { ZoneTable } from "@/features/dns/ZoneTable";
 import { ApiError } from "@/features/prepare/api";
 import { HistoryTable } from "@/features/prepare/HistoryTable";
 import type { OperationRow } from "@/features/prepare/types";
@@ -18,7 +20,7 @@ function messageOf(error: unknown, fallback: string): string {
 }
 
 // Pantalla del módulo "DNS": sin servidor, el formulario de crear (REQ-13); con servidor, su panel
-// y la tabla de registros (REQ-17, REQ-23). Al final, el historial (REQ-36).
+// y los registros en dos pestañas: "VMs" (REQ-17, REQ-23) y "Zona" (REQ-46). Al final, el historial (REQ-36).
 export function Dns() {
   // null hasta la primera lectura: así no aparece el formulario de crear antes de saber si hay servidor.
   const [overview, setOverview] = useState<DnsOverview | null>(null);
@@ -27,6 +29,8 @@ export function Dns() {
   const [historyError, setHistoryError] = useState("");
   // Verdadero mientras se recarga la pantalla tras una operación: desactiva los botones (REQ-38).
   const [reloading, setReloading] = useState(false);
+  // Sube con cada operación terminada; la tabla de la zona la observa (REQ-47).
+  const [zoneVersion, setZoneVersion] = useState(0);
 
   const loadOverview = useCallback(async () => {
     try {
@@ -52,8 +56,10 @@ export function Dns() {
     void loadHistory();
   }, [loadOverview, loadHistory]);
 
-  // Al terminar una operación se recargan el servidor, las VMs y el historial.
+  // Al terminar una operación se recargan el servidor, las VMs y el historial; si la pestaña "Zona"
+  // está abierta, la nueva versión hace que lea la zona otra vez (REQ-47).
   const reload = useCallback(async () => {
+    setZoneVersion((v) => v + 1);
     setReloading(true);
     try {
       await Promise.all([loadOverview(), loadHistory()]);
@@ -112,11 +118,23 @@ export function Dns() {
             <CardHeader>
               <CardTitle>Registros</CardTitle>
               <CardDescription>
-                Registros A de la zona {server.zone}.
+                Registros de la zona {server.zone}: los de las VMs y los que sirve el servidor DNS.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <RecordTable vms={overview?.vms ?? []} busy={reloading} onDone={reload} />
+              {/* "Zona" se monta solo al abrirla: así lee la zona al abrirse y no antes (REQ-47). */}
+              <Tabs defaultValue="vms">
+                <TabsList>
+                  <TabsTrigger value="vms">VMs</TabsTrigger>
+                  <TabsTrigger value="zone">Zona</TabsTrigger>
+                </TabsList>
+                <TabsContent value="vms">
+                  <RecordTable vms={overview?.vms ?? []} busy={reloading} onDone={reload} />
+                </TabsContent>
+                <TabsContent value="zone">
+                  <ZoneTable version={zoneVersion} />
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         </>

@@ -34,3 +34,12 @@ export interface RecordResult {
   ok: boolean;
   message: string;
 }
+
+// Un registro de la zona tal como la sirve bind9 (REQ-46): tipo (A, NS, SOA...), nombre absoluto
+// sin el punto final, valor y TTL en segundos.
+export interface ZoneRecord {
+  type: string;
+  name: string;
+  value: string;
+  ttl: number;
+}

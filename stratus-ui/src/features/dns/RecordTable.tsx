@@ -47,8 +47,10 @@ export function RecordTable({ vms, busy, onDone }: Props) {
   const [active, setActive] = useState<string | null>(null);
   const disabled = busy || pending;
 
+  // Un servidor de balanceador no se registra (REQ-23): no se puede elegir.
+  const selectable = (vm: DnsVm) => vm.record_ip === "" && vm.role !== "server";
   // Solo cuentan las elegidas que siguen sin registro, en el orden de la tabla.
-  const chosen = vms.filter((vm) => vm.record_ip === "" && selected.has(vm.name)).map((vm) => vm.name);
+  const chosen = vms.filter((vm) => selectable(vm) && selected.has(vm.name)).map((vm) => vm.name);
 
   function toggle(name: string, on: boolean) {
     const next = new Set(selected);
@@ -107,7 +109,7 @@ export function RecordTable({ vms, busy, onDone }: Props) {
             {vms.map((vm) => (
               <TableRow key={vm.name}>
                 <TableCell>
-                  {vm.record_ip === "" && (
+                  {selectable(vm) && (
                     <Checkbox
                       aria-label={`Seleccionar ${vm.name}`}
                       checked={selected.has(vm.name)}

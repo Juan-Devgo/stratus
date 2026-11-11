@@ -69,6 +69,7 @@ export function createVm(input: CreateVmInput): Promise<string> {
 // advertencias llegan en el mismo texto, una por línea.
 export interface ActionResult {
   message: string;
+  notice?: string;
   warning?: string;
 }
 

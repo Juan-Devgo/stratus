@@ -101,7 +101,9 @@ func (s *DNSService) Overview(ctx context.Context) (DNSOverview, error) {
 		case isLB[row.Name]:
 			vm.Role = "lb"
 		case serverLB[row.Name] != "":
+			// Un servidor de balanceador no se registra: se oculta la fila que aún conserve (REQ-23)
 			vm.Role = "server"
+			vm.RecordIP = ""
 		}
 		if vm.RecordIP != "" {
 			vm.FQDN = row.Name + "." + s.cfg.Domain

@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { NoticeAlert } from "@/components/NoticeAlert";
 import { WarningAlert } from "@/components/WarningAlert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useOperation } from "@/features/prepare/useOperation";
@@ -33,14 +34,17 @@ export function ServerTable({ servers, lbOff, lb, onDone }: Props) {
   // VM que se está quitando, para mostrar el Spinner en su botón.
   const [active, setActive] = useState<string | null>(null);
   const [warning, setWarning] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function confirm(vm: string) {
     setRemoving(null);
     setActive(vm);
     setWarning("");
+    setNotice("");
     await run(async () => {
       const res = await removeServer(lb, vm);
       setWarning(res.warning ?? "");
+      setNotice(res.notice ?? "");
       return res.message;
     });
     setActive(null);
@@ -119,6 +123,7 @@ export function ServerTable({ servers, lbOff, lb, onDone }: Props) {
         </AlertDialogContent>
       </AlertDialog>
       <OperationResult result={result} />
+      <NoticeAlert notice={notice} />
       <WarningAlert warning={warning} />
     </div>
   );

@@ -74,12 +74,27 @@ describe("RecordTable", () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  it("AC-31 shows each VM with its record", () => {
-    render(<RecordTable vms={[WEB_A, LB1]} busy={false} onDone={vi.fn()} />);
-    const web = within(rowOf("web-a"));
-    expect(web.getByText("Servidor web (Nginx)")).toBeInTheDocument();
-    expect(web.getByText("web-a.stratus.lan")).toBeInTheDocument();
+  it("AC-31 no selection for a server of a load balancer", () => {
+    const server: DnsVm = { ...VM1, name: "web-b", kind: "apache", role: "server", ip: "10.10.1.11" };
+    render(<RecordTable vms={[WEB_A, LB1, server, VM1]} busy={false} onDone={vi.fn()} />);
+
+    expect(within(rowOf("web-b")).getByText("Servidor web (Apache)")).toBeInTheDocument();
+    expect(within(rowOf("web-b")).queryByRole("checkbox")).not.toBeInTheDocument();
+    // Las demás VMs sin registro siguen pudiéndose elegir.
+    expect(screen.getByRole("checkbox", { name: "Seleccionar lb1" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Seleccionar vm1" })).toBeInTheDocument();
+    expect(within(rowOf("web-a")).getByText("web-a.stratus.lan")).toBeInTheDocument();
     expect(within(rowOf("lb1")).getByText("Balanceador")).toBeInTheDocument();
+  });
+
+  it("AC-58 hidden record has no Quitar registro", () => {
+    const server: DnsVm = { ...VM1, name: "web-b", kind: "apache", role: "server", ip: "10.10.1.11" };
+    render(<RecordTable vms={[server, WEB_A]} busy={false} onDone={vi.fn()} />);
+
+    const row = within(rowOf("web-b"));
+    expect(row.queryByRole("button", { name: "Quitar registro" })).not.toBeInTheDocument();
+    expect(row.queryByText(/stratus\.lan/)).not.toBeInTheDocument();
+    expect(within(rowOf("web-a")).getByRole("button", { name: "Quitar registro" })).toBeInTheDocument();
   });
 
   it("AC-33 Quitar registro asks first and then deletes the record", async () => {

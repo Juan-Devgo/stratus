@@ -24,7 +24,7 @@ type WebServerView struct {
 	Type  string `json:"type"`
 	State string `json:"state"` // running, poweroff o unknown
 	IP    string `json:"ip"`
-	FQDN  string `json:"fqdn"` // <vm>.<dominio> si tiene registro DNS
+	FQDN  string `json:"fqdn"` // <vm>.<dominio> si tiene registro DNS y no está asignado
 	LB    string `json:"lb"`   // balanceador al que está asignado
 }
 
@@ -54,15 +54,15 @@ func (s *WebService) ListWebServers(ctx context.Context) ([]WebServerView, strin
 			missing = append(missing, row.Name)
 		}
 		view := WebServerView{Name: row.Name, Type: row.Type, State: status.state, IP: status.ip}
-		if _, hasRecord, err := s.dnsRepo.Record(ctx, row.Name); err != nil {
-			return nil, "", err
-		} else if hasRecord {
-			view.FQDN = row.Name + "." + s.cfg.Domain
-		}
+		// Un servidor asignado a un balanceador no muestra FQDN aunque conserve una fila (REQ-6)
 		if server, assigned, err := s.lbs.ServerByVM(ctx, row.Name); err != nil {
 			return nil, "", err
 		} else if assigned {
 			view.LB = server.LB
+		} else if _, hasRecord, err := s.dnsRepo.Record(ctx, row.Name); err != nil {
+			return nil, "", err
+		} else if hasRecord {
+			view.FQDN = row.Name + "." + s.cfg.Domain
 		}
 		servers = append(servers, view)
 	}

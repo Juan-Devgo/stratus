@@ -37,6 +37,13 @@ describe("WebTable", () => {
     expect(screen.getByRole("group", { name: "Acciones de web-a" })).toBeInTheDocument();
   });
 
+  it("AC-8 web table shows - as FQDN of an assigned server", () => {
+    const assigned: WebServer = { name: "web-c", type: "nginx", state: "running", ip: "10.10.1.11", fqdn: "", lb: "lb1" };
+    render(<WebTable servers={[assigned]} busy={false} onDone={vi.fn()} />);
+
+    expect(cellsOf("web-c")).toEqual(["web-c", "Nginx", "Encendida", "10.10.1.11", "-", "lb1"]);
+  });
+
   it("AC-8 shows an empty state without servers", () => {
     render(<WebTable servers={[]} busy={false} onDone={vi.fn()} />);
     expect(screen.getByText("Sin servidores web")).toBeInTheDocument();

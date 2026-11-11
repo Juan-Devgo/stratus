@@ -121,8 +121,26 @@ describe("AssignServerForm", () => {
     expect(screen.getByRole("button", { name: "Asignar" })).toBeDisabled();
   });
 
-  it("AC-37 shows the warning when the DNS record could not be updated", async () => {
-    const warning = "Operación completada; no se pudo actualizar el registro DNS de web-a, use Actualizar registros";
+  it("AC-37 assign and remove show the notice: assign tells the record was removed", async () => {
+    const notice = "Registro DNS de web-a quitado: los servidores de un balanceador no se registran";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(201, { message: "Servidor server1 (web-a) asignado a lb1", notice }),
+    );
+    const user = userEvent.setup();
+    render(<AssignServerForm lb={lb1} vms={vms} onDone={vi.fn()} />);
+
+    await pickVm(user, "web-a");
+    await user.click(screen.getByRole("button", { name: "Asignar" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText("Servidor server1 (web-a) asignado a lb1")).toBeInTheDocument();
+    expect(screen.getByText("Aviso")).toBeInTheDocument();
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    expect(screen.queryByText("Advertencia")).not.toBeInTheDocument();
+  });
+
+  it("AC-57 assign shows the DNS warning when the record could not be dropped", async () => {
+    const warning = "Operación completada; no se pudo quitar el registro DNS de web-a, use Actualizar registros";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       jsonResponse(201, { message: "Servidor server1 (web-a) asignado a lb1", warning }),
     );
@@ -136,5 +154,6 @@ describe("AssignServerForm", () => {
     expect(await screen.findByText("Servidor server1 (web-a) asignado a lb1")).toBeInTheDocument();
     expect(screen.getByText(warning)).toBeInTheDocument();
     expect(screen.getByText("Advertencia")).toBeInTheDocument();
+    expect(screen.queryByText("Aviso")).not.toBeInTheDocument();
   });
 });

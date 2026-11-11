@@ -42,6 +42,17 @@ describe("DnsServerPanel", () => {
     expect(onDone).toHaveBeenCalled();
   });
 
+  it("AC-58 refresh result names the removed VMs", async () => {
+    const message = "Registros actualizados; registros quitados: web-a, vm3";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { message }));
+    const user = userEvent.setup();
+    render(<DnsServerPanel server={SERVER} busy={false} onDone={vi.fn()} />);
+
+    await user.click(within(actions()).getByRole("button", { name: "Actualizar registros" }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+
   it("AC-29 delete names the server, waits for Confirmar and shows the rejection", async () => {
     const text = "Quite primero el resolvedor DNS de las VMs: vm1";
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(409, { error: text }));

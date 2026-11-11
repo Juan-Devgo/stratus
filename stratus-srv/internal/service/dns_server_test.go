@@ -227,6 +227,40 @@ func TestAC23_DNSOverview(t *testing.T) {
 	})
 }
 
+// AC-58, REQ-23: una VM servidor de un balanceador no muestra FQDN ni IP de registro aunque conserve
+// una fila guardada; el balanceador sí muestra el suyo.
+func TestAC58_OverviewHidesServerRecord(t *testing.T) {
+	runner := &fakeRunner{results: map[string]RunResult{"prepare/list-vms.sh": {Stdout: []byte(
+		"dns1 running 192.168.1.53\nlb1 running 192.168.1.41\nweb-b running 10.10.1.11\n")}}}
+	env := newDNSEnv(t, runner)
+	ctx := context.Background()
+	env.registerWeb(t, "web-b", WebTypeApache)
+	env.registerDNS(t, "dns1", repository.DNSRecord{VM: "web-b", IP: "10.10.1.11"}, repository.DNSRecord{VM: "lb1", IP: "192.168.1.41"})
+	if _, err := env.vms.Insert(ctx, "lb1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.lbs.InsertLB(ctx, repository.LoadBalancer{Name: "lb1", Subnet: 1, FrontendPort: 80}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.lbs.InsertServer(ctx, repository.LBServer{LB: "lb1", Name: "server1", VM: "web-b", Port: 80,
+		LastIP: "10.10.1.11", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := env.svc.Overview(ctx)
+
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	want := []DNSVMView{
+		{Name: "lb1", Role: "lb", State: "running", IP: "192.168.1.41", FQDN: "lb1." + testDomain, RecordIP: "192.168.1.41"},
+		{Name: "web-b", Kind: WebTypeApache, Role: "server", State: "running", IP: "10.10.1.11"},
+	}
+	if !slices.Equal(view.VMs, want) {
+		t.Errorf("VMs = %+v, se esperaba %+v", view.VMs, want)
+	}
+}
+
 // AC-29: con una VM que usa el servidor DNS como resolvedor (aunque esté apagada), eliminarlo se
 // rechaza sin llamar a ningún script; sin resolvedores, delete-vm.sh lo borra como delete_dns y no
 // quedan filas de DNS.

@@ -16,6 +16,7 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { NoticeAlert } from "@/components/NoticeAlert";
 import { WarningAlert } from "@/components/WarningAlert";
 import type { Vm } from "@/features/prepare/types";
 import { useOperation } from "@/features/prepare/useOperation";
@@ -39,6 +40,7 @@ function AssignFields({ lb, vms, onDone }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [warning, setWarning] = useState("");
+  const [notice, setNotice] = useState("");
   const { pending, result, run } = useOperation();
 
   const candidates = vms.filter((item) => item.role === "vm");
@@ -64,9 +66,11 @@ function AssignFields({ lb, vms, onDone }: Props) {
     }
     setConfirmOpen(false);
     setWarning("");
+    setNotice("");
     await run(async () => {
       const res = await assignServer(lb.name, vm, Number(port));
       setWarning(res.warning ?? "");
+      setNotice(res.notice ?? "");
       return res.message;
     });
     setVm(null);
@@ -114,6 +118,7 @@ function AssignFields({ lb, vms, onDone }: Props) {
           </Button>
         </Field>
         <OperationResult result={result} />
+        <NoticeAlert notice={notice} />
         <WarningAlert warning={warning} />
       </FieldGroup>
 

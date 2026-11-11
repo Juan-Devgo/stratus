@@ -177,7 +177,9 @@ func TestAC8_ListWebServersOnly(t *testing.T) {
 		LastIP: "10.10.1.11", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "web-a", IP: "192.168.1.40"}}); err != nil {
+	// web-b, asignada, conserva una fila guardada antes de la enmienda: no muestra FQDN (REQ-6)
+	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "web-a", IP: "192.168.1.40"},
+		{VM: "web-b", IP: "10.10.1.11"}}); err != nil {
 		t.Fatal(err)
 	}
 

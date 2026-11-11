@@ -1,6 +1,7 @@
 import { CircleAlertIcon, CircleCheckIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
+import { FqdnLink } from "@/components/FqdnLink";
 import { IpCell } from "@/components/IpCell";
 import { OperationResult } from "@/components/OperationResult";
 import {
@@ -125,18 +126,7 @@ export function RecordTable({ vms, busy, onDone }: Props) {
                 </TableCell>
                 <TableCell>
                   {/* El enlace solo resuelve si el equipo del navegador usa el servidor DNS (REQ-45). */}
-                  {vm.fqdn ? (
-                    <a
-                      href={`http://${vm.fqdn}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary underline-offset-4 hover:underline"
-                    >
-                      {vm.fqdn}
-                    </a>
-                  ) : (
-                    "-"
-                  )}
+                  <FqdnLink fqdn={vm.fqdn} />
                 </TableCell>
                 <TableCell>
                   <IpCell ip={vm.record_ip} />

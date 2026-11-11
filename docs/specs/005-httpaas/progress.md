@@ -145,3 +145,8 @@
 - Files: `service/vm_status{,_test}.go`; `handler/respond{,_test}.go`. The amended docs went in their own commit (T240).
 - Decisions: `queryVMStates` checks `ctx.Err()` after `list-vms.sh` and drops the failed row whatever the runner returned (an error or a kill exit code), so every caller behaves the same. `writeError` returns before any mapping for a wrapped `context.Canceled`: no log line and no response, since the client is gone.
 - Notes: reported from the log lines "no se pudo guardar el historial de list_dns: guardar operación: context canceled" and "error interno: obtener servidor DNS: context canceled" after a page reload. The tests use a local `cancelRunner` because `fakeRunner` never returns an error. gofmt clean, golangci-lint 0 issues, `go test ./...` ok.
+
+## Phase 27: Amendment 2026-11-11: FQDN links in the web servers table
+- Files: new `stratus-ui/src/components/FqdnLink.tsx`; `features/web/WebTable.{tsx,test.tsx}`; `features/dns/RecordTable.tsx`. The amended docs went in their own commit (T245).
+- Decisions: the link of `RecordTable` moved to `FqdnLink` ("-" without link, like `IpCell`), so both tables share it and the RecordTable AC-65 test covers the move.
+- Notes: UI typecheck ok, 288 tests and build ok.

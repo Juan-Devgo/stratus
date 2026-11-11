@@ -1,6 +1,7 @@
 import { GlobeIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { Fragment, useState } from "react";
 
+import { FqdnLink } from "@/components/FqdnLink";
 import { OperationResult } from "@/components/OperationResult";
 import {
   AlertDialog,
@@ -97,7 +98,9 @@ export function WebTable({ servers, busy, onDone }: Props) {
                 <TableCell>
                   <IpCell ip={server.ip} />
                 </TableCell>
-                <TableCell>{server.fqdn || "-"}</TableCell>
+                <TableCell>
+                  <FqdnLink fqdn={server.fqdn} />
+                </TableCell>
                 <TableCell>{server.lb || "-"}</TableCell>
               </TableRow>
               <TableRow>

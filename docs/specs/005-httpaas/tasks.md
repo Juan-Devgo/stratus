@@ -299,6 +299,6 @@ Removed on 2026-11-11 by Phase 21.
 
 ## Phase 27: Amendment 2026-11-11: FQDN links in the web servers table (REQ-45)
 - [x] T245 Amend `spec.md` (REQ-45, AC-65, clarification), `plan.md` and this file, and commit the docs
-- [ ] T246 Write the AC-65 link test in `stratus-ui/src/features/web/WebTable.test.tsx` (REQ-45, AC-65)
-- [ ] T247 Move the FQDN link of `RecordTable.tsx` to `stratus-ui/src/components/FqdnLink.tsx` and use it in `RecordTable.tsx` and `WebTable.tsx` (REQ-45, AC-65)
-- [ ] T248 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path
+- [x] T246 Write the AC-65 link test in `stratus-ui/src/features/web/WebTable.test.tsx` (REQ-45, AC-65)
+- [x] T247 Move the FQDN link of `RecordTable.tsx` to `stratus-ui/src/components/FqdnLink.tsx` and use it in `RecordTable.tsx` and `WebTable.tsx` (REQ-45, AC-65)
+- [x] T248 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path

@@ -100,4 +100,15 @@ describe("WebTable copy buttons", () => {
     const rowB = screen.getByRole("cell", { name: "web-b" }).closest("tr") as HTMLElement;
     expect(within(rowB).queryByRole("button", { name: /^Copiar/ })).not.toBeInTheDocument();
   });
+
+  it("AC-65 the FQDN is a link that opens in a new tab and - has none", () => {
+    render(<WebTable servers={SERVERS} busy={false} onDone={vi.fn()} />);
+
+    const link = screen.getByRole("link", { name: "web-a.stratus.lan" });
+    expect(link).toHaveAttribute("href", "http://web-a.stratus.lan/");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    const rowB = screen.getByRole("cell", { name: "web-b" }).closest("tr") as HTMLElement;
+    expect(within(rowB).queryByRole("link")).not.toBeInTheDocument();
+  });
 });

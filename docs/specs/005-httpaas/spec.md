@@ -8,7 +8,7 @@
 
 ## 2. Constitution relationship
 - Applies:
-  - P1: the backend only validates input (including the uploaded archive's size and extension), invokes one script per operation and reports the result; VM creation, page transfer and extraction, bind9 zone changes and systemctl run only in scripts.
+  - P1: the backend only validates input (including the uploaded archive's size and extension), invokes one script per operation and reports the result; VM creation, page transfer and extraction, bind9 zone changes, the zone read of the "Zona" tab and systemctl run only in scripts.
   - P2: each operation has its own script file with `set -euo pipefail`, explicit arguments and a documented exit-code table; the page archive reaches the script as the path of a temporary host file given as an argument (as 003 REQ-12); record refresh and service actions are idempotent.
   - P3: VM name, memory, CPUs, web server type, selected VMs, and the `APP_DNS_*` values are validated against an allowlist in the UI/backend and again in the script, and passed as discrete arguments.
   - P4: web and DNS servers are bootstrapped by Guest Additions as in 001 REQ-30 and afterwards reached only by SSH with the backend key; web servers assigned to a load balancer are reached through its `jump` (004 REQ-19).
@@ -16,7 +16,7 @@
   - P6: every operation ends with a success or failure message; the history keeps command, exit code, stderr and timestamp of every change and every failed read.
   - P7: two home cards, "Servidores web" and "DNS", each open one screen; forms confirm the result.
   - P8: each script runs on its own with bats tests; a before/after demonstration on the real host covers what stubs cannot (AC-45 to AC-48).
-  - P9: reuses the VM creation, VM selector, script runner, operation runner, per-VM locks, history, archive upload and archive validation of 001-004; one site per web server, one DNS server, one zone.
+  - P9: one shared copy button for every IP cell; the tabs come from shadcn/ui on the `@base-ui/react` package already installed. Reuses the VM creation, VM selector, script runner, operation runner, per-VM locks, history, archive upload and archive validation of 001-004; one site per web server, one DNS server, one zone.
 - Conflicts: none with constitution 2.1.0 (mission amended on 2026-10-31 to add these two modules). This spec supersedes these requirements of the approved specs 001-004 for web servers, the DNS server and VMs with a DNS record; the supersessions are declared only here and 001-004 stay unchanged:
   - 001 REQ-2 (selector labels): extended by REQ-6 and REQ-17.
   - 001 REQ-3 (delete): extended by REQ-24 and REQ-30.
@@ -27,6 +27,7 @@
   - 004 REQ-10 (assign): extended by REQ-41 (the VM's record is removed) and by REQ-26 (record update after a failed assign).
   - 004 REQ-11 (remove): extended by REQ-42 (no record afterwards, notice, addresses reported before the remove are discarded).
   - 004 REQ-8 (VMs that can be assigned): superseded by REQ-19.
+  - 004 REQ-5 and REQ-11 (load balancers and servers tables): extended by REQ-43 (copy button next to each IP).
 
 ## 3. User stories
 | ID | Priority | Actor | Story |
@@ -39,6 +40,8 @@
 | US-6 | P1 | Student admin | As a student admin, I need A records to follow the VMs' LAN DHCP addresses after every start and to disappear when a VM becomes a server of a load balancer, so every name resolves to an address reachable from the LAN without manual edits |
 | US-8 | P1 | Student admin | As a student admin, I need web servers and the DNS server to work with modules 001-004 like any other VM, so I can prepare them, manage users and services on them and put web servers behind a load balancer |
 | US-9 | P2 | Student admin | As a student admin, I need to see the history of operations of each module, so I can diagnose failures |
+| US-10 | P2 | Student admin | As a student admin, I need a copy button next to every IP address of a table and the record names of the DNS table as links, so I can paste an address or open a site in one click |
+| US-11 | P1 | Student admin | As a student admin, I need to see the records the DNS server actually serves (type, name, value, TTL), so I can check that the zone matches the records the app stores |
 
 US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID is not reused.
 
@@ -96,7 +99,16 @@ US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID i
 - REQ-37 (US-1..US-9): The home screen shows six module cards, all enabled: Preparar sistema, Gestión de usuarios, Servicios systemd, Backends HAProxy, Servidores web and DNS (supersedes the four cards of 001 REQ-19).
 - REQ-38 (US-1..US-8): Every operation ends with a success or failure message in the UI; failure messages are understandable and do not show raw stack traces; while an operation runs, the UI shows a loading indicator and disables the buttons.
 - REQ-39 (US-1..US-8): Each script file starts with a header documenting usage, arguments and exit-code table (including reserved code 99 "Operación no implementada"), followed by `set -euo pipefail`, with comments organized in sections and numbered steps.
-- REQ-40 (US-1..US-9): The UI is built with shadcn/ui components and all its text is in Spanish.
+- REQ-40 (US-1..US-11): The UI is built with shadcn/ui components and all its text is in Spanish.
+
+### Table helpers and zone view
+- REQ-43 (US-10): Every IPv4 address shown in a table of the UI has a copy button next to it: the IP column of the web servers table (REQ-6), the IP column of the load balancers table and the internal IP column of the servers table (004), the IP and record IP columns of the DNS records table (REQ-23) and the value of each A record of the zone table (REQ-46). A cell that shows "-" has no button.
+- REQ-44 (US-10): The copy button is an icon button with the accessible name "Copiar <ip>". Clicking it copies the address to the clipboard and shows a check icon for about 2 seconds; when the browser cannot copy, the UI shows the toast "No se pudo copiar <ip>". It also works when the UI is served over plain HTTP from a LAN address, where the asynchronous clipboard API does not exist.
+- REQ-45 (US-10): In the DNS records table, each FQDN of the "Registro" column is a link to `http://<fqdn>/` that opens in a new tab (`target="_blank"`, `rel="noopener noreferrer"`). A row with FQDN "-" has no link. The link resolves only when the browser's machine uses the DNS server as resolver, which stays outside the app (section 6).
+- REQ-46 (US-11): The "Registros" card of the DNS screen has two tabs above its content: "VMs", with the records table of REQ-23 (default), and "Zona", with the records read from the zone file the DNS server serves (`/var/lib/bind/db.<APP_DNS_DOMAIN>`, written by REQ-28): one row per record with type (A, NS, SOA, ...), name (absolute, without the final dot), value and TTL in seconds, in the order bind9 prints them.
+- REQ-47 (US-11): The zone is read when the "Zona" tab is opened, again with its "Recargar" button, and after every operation of the DNS screen while the tab is open. While it is read, the tab shows a loading indicator and "Recargar" is disabled. An empty zone shows "La zona no tiene registros".
+- REQ-48 (US-11): The zone is read by `scripts/dns/show-zone.sh <dns> <domain>`, which reads the zone file over SSH with bind9's zone tool in canonical form and prints one line per record. It holds the DNS server's lock like Estado (REQ-34); while another operation runs on it the read fails with "Operación en curso en esta VM".
+- REQ-49 (US-11): When the DNS server is off, the read fails with "El servidor DNS está apagado; enciéndalo para ver la zona"; any other failure shows the script's message. A failed read adds a `show_zone` row to the DNS history; a successful read adds none (extends REQ-35, as Estado).
 
 ## 5. Acceptance criteria
 
@@ -172,6 +184,14 @@ US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID i
 - AC-53 (US-9): Given more than 50 recorded operations of a module, when the user opens its screen, then only the 50 most recent are listed, newest first, each with expandable stderr.
 - AC-54 (US-1..US-9): Given the home screen, when it loads, then six enabled cards appear and "Servidores web" and "DNS" navigate to their screens.
 - AC-55 (US-1..US-8): Given a script run directly with a missing argument or a value outside its allowlist (for example type `iis`, name `Web1` or domain `Stratus_Lan`), when it runs, then it exits with code 2 and calls neither VBoxManage, ssh nor scp.
+- AC-63 (US-10): Given the web servers, load balancers, load balancer servers and DNS records tables with IPs, when the user clicks the copy button next to `192.168.1.40`, then the clipboard holds `192.168.1.40` and the button shows the check icon; given a cell with "-", then it has no copy button.
+- AC-64 (US-10): Given a browser where copying fails, when the user clicks "Copiar 192.168.1.40", then the toast "No se pudo copiar 192.168.1.40" appears.
+- AC-65 (US-10): Given `web-a` with record `web-a.stratus.lan`, when the DNS screen loads, then "web-a.stratus.lan" is a link to `http://web-a.stratus.lan/` with `target="_blank"` and `rel="noopener noreferrer"`; given `vm2` without record, then its row has no link.
+- AC-66 (US-11): Given the DNS server `dns1` with the record `web-a` → `192.168.1.40`, when the user opens the "Zona" tab, then it lists SOA and NS of `stratus.lan`, A `dns1.stratus.lan` → `192.168.1.53` and A `web-a.stratus.lan` → `192.168.1.40`, each with TTL 60, and the A values have copy buttons.
+- AC-67 (US-11): Given the "Zona" tab open, when the user adds a record or clicks "Recargar", then the zone is read again and the new row appears.
+- AC-68 (US-11): Given the DNS server off, when the user opens the "Zona" tab, then it shows "El servidor DNS está apagado; enciéndalo para ver la zona" and the DNS history has a failed `show_zone` row; given 20 successful reads, then the history has no `show_zone` row.
+- AC-69 (US-11): Given `show-zone.sh` run directly with a missing argument or a value outside its allowlist (name `DNS_1`, domain `Stratus_Lan`), when it runs, then it exits with code 2 and calls neither VBoxManage nor ssh.
+- AC-70 (US-11): Given the real host with `dns1` and a record for `vm1`, when the user opens "Zona" before and after removing the record, then the A row of `vm1.stratus.lan` is shown and then gone, matching `dig @<APP_DNS_IP> vm1.stratus.lan A`.
 - AC-56 (US-1..US-8): Given the script files, when one is opened, then it contains usage, arguments, exit-code table (including 99), `set -euo pipefail` and comments with sections and numbered steps.
 
 ## 6. Out of scope
@@ -179,7 +199,9 @@ US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID i
 - Editing web server configuration files; changing the type of an existing web server.
 - Building the Apache, Nginx and DNS base disks (the team prepares them by hand once, as in 001 and 004).
 - More than one DNS server, more than one zone, secondary servers, DNSSEC.
-- Record types other than A and the zone NS (PTR, CNAME, MX, TXT, AAAA); custom record names or TTLs.
+- Record types other than A and the zone NS (PTR, CNAME, MX, TXT, AAAA); custom record names or TTLs. The "Zona" tab (REQ-46) only shows what the zone holds.
+- Changing records from the "Zona" tab; reading the zone by zone transfer (AXFR) or from bind9's memory dump.
+- Copy buttons outside tables or for values other than IPv4 addresses; links on FQDNs outside the DNS records table; HTTPS links.
 - Renaming records when a hostname changes.
 - Choosing the DNS server's IP from the UI; DHCP for the DNS server.
 - Setting the DNS server as resolver of any VM, of the host or of LAN machines; clients query it explicitly (`dig @<APP_DNS_IP>`) or are configured by hand outside the app.
@@ -227,3 +249,8 @@ US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID i
 - 2026-11-10. Q: What does the DNS screen show for a server assigned to a load balancer that still has a stored record (for example `web-a` → `10.10.1.11` after upgrading)? A: It is hidden: FQDN "-", record IP "-" and no "Quitar registro"; "Actualizar registros" removes the record (REQ-23, AC-58).
 - 2026-11-10. Note: this amendment was approved by the user on 2026-11-10 from a summary of the amendment (the four answers and the planner proposals), not from a line-by-line review of the file.
 - 2026-11-11. Q: Does the app set the DNS server as resolver of the VMs? A: No. The single DNS server is authoritative for `APP_DNS_DOMAIN` and forwarder to `APP_DNS_FORWARDERS`, and that is enough. US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 are removed: no "Usar como resolvedor" switch, no resolver scripts, routes, history operations or stored flag, and deleting the DNS server is no longer rejected because of resolvers (REQ-21, AC-29). Supersedes the 2026-10-31 and 2026-11-01 answers on the resolver.
+- 2026-11-11. Q: Where do the copy buttons go? A: Next to every IP address in every table of the UI (US-10, REQ-43, REQ-44).
+- 2026-11-11. Q: Which domain names become links? A: The FQDNs of the DNS records table, opened in a new tab (REQ-45).
+- 2026-11-11. Q: How does the user see the records the DNS server actually has? A: A new tab above the DNS records table lists type, name, value and TTL, read from the DNS server by a new script (US-11, REQ-46 to REQ-49). The change is an amendment of this spec, not a new one.
+- 2026-11-11. Planner proposal adopted by default (not a user answer): the zone is read from the zone file through `named-checkzone -D` (canonical form, absolute names) rather than AXFR, because REQ-16 does not configure `allow-transfer` and the file is what bind9 loads after every checked reload (REQ-28).
+- 2026-11-11. Planner proposal adopted by default (not a user answer): links use `http://` because only port 80 is served, without HTTPS (REQ-4).

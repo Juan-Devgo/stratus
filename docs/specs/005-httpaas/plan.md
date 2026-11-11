@@ -2,7 +2,7 @@
 
 ## 1. Metadata
 - Spec: `docs/specs/005-httpaas/spec.md`
-- Updated: 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
+- Updated: 2026-11-11 (amendment: copy buttons on IPs, links on DNS record names and the "Zona" tab; US-10, US-11, REQ-43 to REQ-49, AC-63 to AC-70). Earlier on 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
 - Constitution version: 2.1.0
 
 ## 2. Constitution check
@@ -166,6 +166,19 @@ Amendment 2026-11-10 (every file below exists except `NoticeAlert`; tests next t
 - modify: `stratus-ui/src/features/dns/RecordTable.tsx` - no checkbox for role `server`.
 - modify: `docs/guide-environment.md` - upgrade note of REQ-27.
 
+Amendment 2026-11-11, zone view and table helpers (tests next to each):
+- create: `scripts/dns/show-zone.sh` and `.bats` - reads the zone (REQ-48).
+- modify: `scripts/dns/test_helper.bash` - `ZONE_DUMP` answer of the ssh stub for `named-checkzone -D`.
+- modify: `stratus-srv/internal/service/errors.go` - `ErrDNSOffZone`; `stratus-srv/internal/handler/respond.go` - 409.
+- create: `stratus-srv/internal/service/dns_zone.go` - `ZoneRecord`, `Zone`, `parseZone`.
+- modify: `stratus-srv/internal/handler/dns.go` - `GET /api/dns/zone`.
+- create: `stratus-ui/src/components/CopyButton.tsx`, `IpCell.tsx` - copy button and IP cell ("-" without button).
+- create: `stratus-ui/src/components/ui/tabs.tsx` - shadcn `tabs` (CLI).
+- modify: `stratus-ui/src/features/web/WebTable.tsx`, `features/haproxy/LbTable.tsx`, `ServerTable.tsx`, `features/dns/RecordTable.tsx` - `IpCell`; FQDN link in `RecordTable`.
+- modify: `stratus-ui/src/features/dns/{types,api}.ts` - `ZoneRecord`, `getZone`.
+- create: `stratus-ui/src/features/dns/ZoneTable.tsx` - the "Zona" tab.
+- modify: `stratus-ui/src/routes/Dns.tsx` - tabs "VMs" and "Zona" in the "Registros" card; `zoneVersion` counter bumped by `reload`.
+
 ## 6. Interfaces and data
 Environment (all optional at startup; checked when used):
 - `APP_APACHE_BASE_DISK`, `APP_NGINX_BASE_DISK`, `APP_DNS_BASE_DISK`: absolute paths. Empty or missing file → the "Disco base de ... no encontrado" message (empty path: from the backend, no script).
@@ -190,7 +203,7 @@ DROP TABLE IF EXISTS dns_resolvers;     -- tabla de US-7, quitada el 2026-11-11
 ```
 History:
 - module `web`: `create_web`, `delete_web`, `install_page`, `start_web`, `stop_web`, `restart_web` always; `status_web` and `list_web` only on failure. VM column = the web server (`-` for `list_web`).
-- module `dns`: `create_dns`, `delete_dns`, `add_records`, `remove_record`, `refresh_records`, `start_bind`, `stop_bind`, `restart_bind` always; `status_bind` only on failure. For add, remove and refresh the VM column is the DNS server and the target VMs are in args.
+- module `dns`: `create_dns`, `delete_dns`, `add_records`, `remove_record`, `refresh_records`, `start_bind`, `stop_bind`, `restart_bind` always; `status_bind` and `show_zone` (2026-11-11) only on failure. For add, remove and refresh the VM column is the DNS server and the target VMs are in args.
 
 Record spec (one argv item): `<vm>,<ipv4>`, for example `web-a,192.168.1.40`.
 
@@ -208,6 +221,7 @@ Scripts (argv; env `APP_SSH_KEY_PATH`, and `APP_GUEST_PASSWORD_FILE` for create)
 | `dns/refresh-records.sh` | `<dns> <domain> <dns_cidr> <wait_vms\|-> <drop_vms\|-> [record...]` (`wait_vms`, `drop_vms` = `a,b`; records = every stored row) | `<vm> <ip>` per kept record, `removed=<vm>` per removed record, `reloaded=yes\|no`; stderr `Registros quitados: a, b` |
 | `dns/{start,restart}-bind.sh`, `dns/stop-bind.sh`, `dns/status-bind.sh` | `<dns>` | as the web unit scripts, unit `named` |
 | `prepare/{install,remove}-package.sh` | `[--jump <lb>] [--frontend <port>] [--role <role>] <vm> <package>` | unchanged |
+| `dns/show-zone.sh` (2026-11-11) | `<dns> <domain>` | one line per record `<type>\t<name>\t<ttl>\t<value>`, name without the final dot; exit 0, 2, 3, 4, 5, 7, 99 |
 
 Validation, step 1 (exit 2, no VBoxManage, ssh, scp, arping or ping call):
 - `vm`, `dns`, `lb`: `^[a-z0-9][a-z0-9-]{0,31}$`. `memory_mb` 512-8192, `cpus` 1-4, `base_disk` absolute, `bridge_adapter` `^[A-Za-z0-9._:-]{1,64}$`.
@@ -305,6 +319,12 @@ setup_dns_stubs                       # as setup_web_stubs plus stop-vm.sh; arpi
 stub_ip_sequence <vm> <ip|->...       # successive IP answers (polls), from 004
 ```
 
+`show-zone.sh` (amendment 2026-11-11):
+1. Validate `<dns>` (`validate_vm_name`), `<domain>` (`validate_domain`) and `APP_SSH_KEY_PATH` (2).
+2. `VBoxManage showvminfo <dns>`; missing: 3.
+3. `vm_exec <dns> named-checkzone -D -o - <domain> /var/lib/bind/db.<domain>`; 2, 4 and 7 pass through, any other failure is 5 with the tool output on stderr.
+4. On the host, `awk` keeps the canonical lines (`<name> <ttl> IN <type> <rdata...>`; the "loaded serial" and "OK" lines some bind9 versions print on stdout are dropped), strips the final dot of the name and prints the tab-separated line.
+
 `dns-common.sh` (amendment 2026-11-10):
 ```
 ip_in_subnet <ip/prefix> <ip>              # 0 when the IPv4 is inside the subnet of the CIDR, else 1; no output
@@ -356,6 +376,10 @@ type ActionResult struct { Message string `json:"message"`; Notice string `json:
 var ErrVMNotOnLAN = errors.New("La VM no tiene una dirección en la LAN")                        // 409
 type ServerRecordError struct { LB string } // "La VM es servidor del balanceador <lb>; registre el balanceador"; 409
 func (c DNSConfig) OnLAN(ip string) bool    // ip is an IPv4 inside the masked prefix of c.IP; false when either does not parse
+var ErrDNSOffZone = errors.New("El servidor DNS está apagado; enciéndalo para ver la zona") // 409; 2026-11-11
+type ZoneRecord struct { Type string `json:"type"`; Name string `json:"name"`; Value string `json:"value"`; TTL int `json:"ttl"` }
+func (s *DNSService) Zone(ctx context.Context) ([]ZoneRecord, error) // ErrNoDNSServer; ops.run(show_zone, dns, recordSuccess false); ErrVMNoIP -> ErrDNSOffZone
+func parseZone(stdout []byte) ([]ZoneRecord, error)                    // 4 tab-separated fields, TTL integer; otherwise an error
 
 type WebConfig struct { ApacheBaseDisk, NginxBaseDisk, BridgeAdapter, Domain string; MaxArchiveBytes int64 }
 func NewWebService(cfg WebConfig, runner ScriptRunner, vms *repository.VMRepository, lbs *repository.LBRepository,
@@ -439,6 +463,7 @@ HTTP API (JSON `snake_case`):
 | `DELETE /api/dns/records/{vm}` | - | 200 `{message}` |
 | `POST /api/dns/records/refresh` | - | 200 `{message}` (names the removed VMs) |
 | `GET /api/dns/history` | - | `{"operations":[...]}` |
+| `GET /api/dns/zone` (2026-11-11) | - | 200 `{"records":[{type,name,value,ttl}]}`; DNS server off → 409 `{error}` |
 | `DELETE /api/prepare/vms/{name}` (changed) | - | 200 `{message, warning?}` |
 | `POST /api/haproxy/lbs/{lb}/servers`, `DELETE .../servers/{vm}` (changed) | as before | `{message, notice?, warning?}` |
 | `DELETE /api/haproxy/lbs/{lb}` (changed) | as before | `{message, warning?}` |
@@ -474,6 +499,13 @@ RecordTable({ vms; busy; onDone })                // checkboxes (none for role "
 // amendment 2026-11-10
 interface ActionResult { message: string; notice?: string; warning?: string }   // features/prepare/api.ts
 NoticeAlert({ notice })                           // components/NoticeAlert.tsx; renders nothing when empty; title "Aviso"
+// amendment 2026-11-11
+interface ZoneRecord { type: string; name: string; value: string; ttl: number }   // features/dns/types.ts
+getZone(): Promise<ZoneRecord[]>                  // features/dns/api.ts
+CopyButton({ value })                             // components; ghost icon-xs Button "Copiar <value>"; navigator.clipboard.writeText,
+                                                  // else hidden textarea + document.execCommand("copy"); CheckIcon 2 s; toast.error on failure
+IpCell({ ip })                                    // components; "-" when empty, else the IP and CopyButton
+ZoneTable({ version })                            // features/dns; reads on mount and when version changes; Recargar; Tipo, Nombre, Valor, TTL
 ```
 `Web.tsx` and `Dns.tsx` load their list, `listVms` (DNS labels) and history on mount and after each operation; one `useOperation` disables every button.
 
@@ -629,6 +661,17 @@ NoticeAlert({ notice })                           // components/NoticeAlert.tsx;
 | TestAC61_AddAfterRemoveNeverInternal | unit | `stratus-srv/internal/service/dns_records_test.go` | US-5, US-6 / REQ-42 / AC-61 | given web-a unassigned reporting `10.10.1.11` or `10.0.2.15` - `ErrVMNotOnLAN`; reporting "" - `ErrVMNoIP`; reporting `192.168.1.47` - spec `web-a,192.168.1.47` |
 | AC-61 remove-server borra las propiedades de IP antes de arrancar | unit | `scripts/haproxy/remove-server.bats` | US-5, US-6 / REQ-42 / AC-61 | given a running server - then calls.log has `guestproperty delete web-a /VirtualBox/GuestInfo/Net/0/V4/IP` and `.../Net/1/V4/IP` after `modifyvm` and before `startvm` |
 | TestAC62_RemoveServerKeepsLBRecord | unit | `stratus-srv/internal/service/haproxy_servers_test.go` | US-5 / REQ-22 / AC-62 | given lb1 with a record and its only server web-a - when RemoveServer runs - then the lb1 row is unchanged and no dns script names lb1 as removed |
+| AC-66 show-zone imprime cada registro como tipo, nombre, TTL y valor | unit | `scripts/dns/show-zone.bats` | US-11 / REQ-46, REQ-48 / AC-66 | given ZONE_DUMP with SOA, NS, two A and the "loaded serial"/"OK" lines - then four tab-separated lines, names without final dot; remote.log has `named-checkzone -D -o - stratus.lan /var/lib/bind/db.stratus.lan` |
+| AC-68 show-zone sale con 7 si el servidor DNS no tiene IP | unit | `scripts/dns/show-zone.bats` | US-11 / REQ-49 / AC-68 | given dns1 without IP - exit 7, no ssh; given ZONE_CHECK=fail - exit 5 with the tool output on stderr |
+| AC-69 show-zone sale con 2 ante argumentos inválidos | unit | `scripts/dns/show-zone.bats` | US-11 / REQ-48 / AC-69, AC-56 | missing argument, `DNS_1`, `Stratus_Lan`, extra argument, no `APP_SSH_KEY_PATH` - exit 2, empty calls.log; `assert_script_structure` |
+| TestAC66_ZoneParsesRecords | unit | `stratus-srv/internal/service/dns_zone_test.go` | US-11 / REQ-46, REQ-48 / AC-66 | given that stdout - then four `ZoneRecord`, argv `[dns1 stratus.lan]`; malformed line - error; no DNS server - `ErrNoDNSServer` without runner call |
+| TestAC68_ZoneDNSOff | unit | `stratus-srv/internal/service/dns_zone_test.go`, `errors_test.go`, `stratus-srv/internal/handler/respond_test.go` | US-11 / REQ-49 / AC-68 | exit 7 - `ErrDNSOffZone` (409) and one failed `show_zone` row; 20 good reads - no row |
+| TestAC66_ZoneRoute | unit | `stratus-srv/internal/handler/dns_test.go` | US-11 / REQ-46 / AC-66 | GET `/api/dns/zone` - 200 `{records:[...]}` |
+| AC-63 copies the IP / AC-64 toast on failure | unit | `stratus-ui/src/components/CopyButton.test.tsx` | US-10 / REQ-44 / AC-63, AC-64 | click "Copiar 192.168.1.40" - writeText called and check icon; writeText rejects - toast "No se pudo copiar 192.168.1.40" |
+| AC-63 copy button next to each IP | unit | `WebTable.test.tsx`, `LbTable.test.tsx`, `ServerTable.test.tsx`, `RecordTable.test.tsx` | US-10 / REQ-43 / AC-63 | an IP cell has "Copiar <ip>"; a "-" cell has none |
+| AC-65 the FQDN is a link | unit | `stratus-ui/src/features/dns/RecordTable.test.tsx` | US-10 / REQ-45 / AC-65 | link `http://web-a.stratus.lan/`, `target=_blank`, `rel=noopener noreferrer`; no link for "-" |
+| AC-66, AC-67, AC-68 zone tab | unit | `stratus-ui/src/features/dns/ZoneTable.test.tsx`, `stratus-ui/src/routes/Dns.test.tsx` | US-11 / REQ-46, REQ-47, REQ-49 / AC-66, AC-67, AC-68 | "VMs" default; "Zona" lists the rows with copy buttons on A values; Recargar and an operation with the tab open read again; error text shown; empty zone text |
+| AC-70 zone before and after removing a record | manual | real host demo | US-11 / REQ-46 / AC-70 | open "Zona", remove `vm1`'s record, open again, `dig` |
 
 Note on REQ-38 and REQ-40: covered by every UI test above (success/failure `OperationResult`, busy buttons through `useOperation`, shadcn components and Spanish texts).
 
@@ -678,6 +721,13 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 | REQ-38 | `useOperation`, `OperationResult`, error mapping in `respond.go` | AC-1, AC-6, AC-21, AC-30 |
 | REQ-39 | headers and sections of `scripts/web/*.sh`, `scripts/dns/*.sh` | AC-55, AC-56 |
 | REQ-40 | shadcn components and Spanish texts in `features/web`, `features/dns` | AC-1, AC-22, AC-30 |
+| REQ-43 | `IpCell` in `WebTable`, `LbTable`, `ServerTable`, `RecordTable`, `ZoneTable` | AC-63, AC-66 |
+| REQ-44 | `CopyButton` | AC-63, AC-64 |
+| REQ-45 | FQDN link in `RecordTable` | AC-65 |
+| REQ-46 | `show-zone.sh`, `DNSService.Zone`, `GET /api/dns/zone`, `ZoneTable`, tabs in `Dns.tsx` | AC-66, AC-70 |
+| REQ-47 | `ZoneTable` version and Recargar, `Dns.tsx` `zoneVersion` | AC-67 |
+| REQ-48 | `show-zone.sh`, `ops.run` DNS server lock | AC-66, AC-69 |
+| REQ-49 | `ErrDNSOffZone`, record policy `show_zone` | AC-68 |
 
 ## 9. Decisions and risks
 - State in new SQLite tables (user's choice). Rejected: a `kind` column on `vms`, which needs a migration the schema does not have.
@@ -714,3 +764,11 @@ Amendment 2026-11-11:
 - `DeleteDNS` no longer checks resolvers: it runs `prepare/delete-vm.sh` directly (REQ-21, AC-29).
 - The shadcn `switch.tsx` is deleted when no other component imports it.
 - Risk: a VM whose resolver was set before the upgrade keeps `APP_DNS_IP` in its resolver list. Mitigation: bind9 keeps answering and forwarding, and the DHCP nameservers follow it; after the DNS server is deleted the VM falls back to them. Undoing the guest configuration by hand is out of scope.
+
+Amendment 2026-11-11, zone view and table helpers:
+- The zone is read from the file with `named-checkzone -D -o -` (canonical, absolute names). Rejected: AXFR (REQ-16 sets no `allow-transfer`) and `rndc dumpdb` (writes a file on the VM and needs a second read).
+- The script prints tab-separated fields and the service only splits them, as `parseRecordRefresh`. The `awk` filter keeps only lines whose third field is `IN`, so the "loaded serial" lines some bind9 versions print on stdout never reach the backend.
+- One `IpCell` renders every IP cell, so the "-" rule and the button live in one place. The copy fallback (`execCommand`) is kept because the UI may be opened over plain HTTP from the LAN, where `navigator.clipboard` does not exist.
+- The "Zona" tab is mounted only while selected; `Dns.tsx` bumps `zoneVersion` in `reload`, so an open tab reads again after an operation (REQ-47).
+- Risk: TXT values with several spaces would be collapsed by `awk`. Mitigation: the zone written by REQ-28 has no TXT records.
+- Risk: the read holds the DNS server lock, so it fails while a refresh runs (up to 120 s). Mitigation: the "Operación en curso en esta VM" text tells the user to retry.

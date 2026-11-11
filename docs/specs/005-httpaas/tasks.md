@@ -256,3 +256,36 @@ Removed on 2026-11-11 by Phase 21.
 - [x] T212 Write "AC-23 no resolver column" (no switch "Usar como resolvedor" in any row) and drop the AC-42 tests in `stratus-ui/src/features/dns/RecordTable.test.tsx`; remove `resolver` from every `DnsVm` fixture (REQ-23, AC-23)
 - [x] T213 Remove `resolver` from `DnsVm` in `stratus-ui/src/features/dns/types.ts`, `setResolver` from `stratus-ui/src/features/dns/api.ts`, the resolver column and `Switch` from `stratus-ui/src/features/dns/RecordTable.tsx`, and `stratus-ui/src/components/ui/switch.tsx` if nothing else imports it (REQ-23, REQ-40)
 - [x] T214 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/dns/`, check that `grep -rni resolvedor` outside `docs/` finds only the `DROP TABLE` and the tests that check the removal, then commit the phase staging only its files by path, never `stratus-srv/.gitignore` or `docs/guide-environment.md` (REQ-21, REQ-23, REQ-35)
+
+## Phase 22: Amendment 2026-11-11: zone read script and backend (US-11)
+- [ ] T215 Commit the amended `docs/specs/005-httpaas/spec.md`, `docs/specs/005-httpaas/plan.md` and `docs/specs/005-httpaas/tasks.md` as one `docs(httpaas)` commit, staging only those three paths (REQ-43, REQ-46)
+- [ ] T216 Add the `ZONE_DUMP` answer for `named-checkzone -D` to the ssh stub in `scripts/dns/test_helper.bash` (REQ-48, AC-66)
+- [ ] T217 Write the AC-66, AC-68 (no IP: exit 7, no ssh; tool failure: exit 5), AC-69 and AC-56 tests in `scripts/dns/show-zone.bats` (REQ-46, REQ-48, REQ-49, AC-56, AC-66, AC-68, AC-69)
+- [ ] T218 Implement `scripts/dns/show-zone.sh` (REQ-39, REQ-46, REQ-48, REQ-49, AC-56, AC-66, AC-68, AC-69)
+- [ ] T219 Write the `ErrDNSOffZone` text test in `stratus-srv/internal/service/errors_test.go` and its 409 mapping test in `stratus-srv/internal/handler/respond_test.go` (REQ-49, AC-68)
+- [ ] T220 Add `ErrDNSOffZone` in `stratus-srv/internal/service/errors.go` and map it in `stratus-srv/internal/handler/respond.go` (REQ-49, AC-68)
+- [ ] T221 Write TestAC66_ZoneParsesRecords and TestAC68_ZoneDNSOff in `stratus-srv/internal/service/dns_zone_test.go` (REQ-46, REQ-48, REQ-49, AC-66, AC-68)
+- [ ] T222 Implement `ZoneRecord`, `Zone` and `parseZone` in `stratus-srv/internal/service/dns_zone.go` (REQ-46, REQ-48, REQ-49, AC-66, AC-68)
+- [ ] T223 Write TestAC66_ZoneRoute in `stratus-srv/internal/handler/dns_test.go` (REQ-46, AC-66)
+- [ ] T224 Implement `GET /api/dns/zone` in `stratus-srv/internal/handler/dns.go` (REQ-46, AC-66)
+- [ ] T225 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...` and `bats scripts/dns/show-zone.bats`, then commit the phase staging only its files by path
+
+## Phase 23: Amendment 2026-11-11: copy buttons and links (US-10)
+- [ ] T226 Write the AC-63 and AC-64 tests in `stratus-ui/src/components/CopyButton.test.tsx` (REQ-44, AC-63, AC-64)
+- [ ] T227 Implement `CopyButton` and `IpCell` in `stratus-ui/src/components/` (REQ-43, REQ-44, REQ-40, AC-63, AC-64)
+- [ ] T228 Write the AC-63 copy-button tests in `stratus-ui/src/features/web/WebTable.test.tsx`, `stratus-ui/src/features/haproxy/LbTable.test.tsx`, `stratus-ui/src/features/haproxy/ServerTable.test.tsx` and `stratus-ui/src/features/dns/RecordTable.test.tsx`, and the AC-65 link test in `RecordTable.test.tsx` (REQ-43, REQ-45, AC-63, AC-65)
+- [ ] T229 Use `IpCell` in `WebTable.tsx`, `LbTable.tsx`, `ServerTable.tsx` and `RecordTable.tsx`, and the FQDN link in `RecordTable.tsx` (REQ-43, REQ-45, AC-63, AC-65)
+- [ ] T230 Run `cd stratus-ui && pnpm typecheck && pnpm test`, then commit the phase staging only its files by path
+
+## Phase 24: Amendment 2026-11-11: zone tab (US-11)
+- [ ] T231 Add shadcn `tabs` with the shadcn CLI in `stratus-ui/src/components/ui/tabs.tsx` (REQ-46, REQ-40)
+- [ ] T232 Add `ZoneRecord` to `stratus-ui/src/features/dns/types.ts` and `getZone` to `stratus-ui/src/features/dns/api.ts` (REQ-46)
+- [ ] T233 Write the AC-66, AC-67, AC-68 and empty-zone tests in `stratus-ui/src/features/dns/ZoneTable.test.tsx` (REQ-46, REQ-47, REQ-49, AC-66, AC-67, AC-68)
+- [ ] T234 Implement `ZoneTable` in `stratus-ui/src/features/dns/ZoneTable.tsx` (REQ-43, REQ-46, REQ-47, REQ-49, AC-66, AC-67, AC-68)
+- [ ] T235 Write the tab tests ("VMs" default, "Zona" reads the zone, an operation with the tab open reads it again) in `stratus-ui/src/routes/Dns.test.tsx` (REQ-46, REQ-47, AC-66, AC-67)
+- [ ] T236 Add the tabs to the "Registros" card in `stratus-ui/src/routes/Dns.tsx` (REQ-46, REQ-47, AC-66, AC-67)
+- [ ] T237 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path
+
+## Phase 25: Amendment 2026-11-11 verification
+- [ ] T238 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/dns/`, and fix every failure (REQ-39, AC-55, AC-56)
+- [ ] T239 Run the real-host demo AC-70 (REQ-46, AC-70)

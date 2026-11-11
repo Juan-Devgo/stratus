@@ -83,3 +83,8 @@
 - Decisions: the new image sections are appended as 8 and 9 instead of renumbering, so the existing "Go to section 5" links stay valid. Web images start from the server image (they can be assigned to an LB); the DNS image from the common part.
 - Notes: T148 green: gofmt clean, golangci-lint 0 issues, `go test ./...` ok, bats 682 ok / 0 not ok, UI typecheck, 262 tests and build ok.
 - Notes: T149 (web demo) and T150 (DNS demo) are manual real-host demos and stay pending: they need VirtualBox, the three new base disks, `APP_DNS_*` and `arping` with `cap_net_raw` on the host.
+
+## Phase 15: Amendment 2026-11-10: documents and LAN rule foundations
+- Files: `scripts/dns/lib/dns-common.{sh,bats}` (`ip_in_subnet`, `validate_lan_records`); `service/{dns_validation,errors}.go` (`DNSConfig.OnLAN`, `ErrVMNotOnLAN`, `ServerRecordError`) + tests; `handler/respond.go` (+ test); `repository/dns.go` (`DeleteRecords`) + test. The three amended docs went in their own commit (T151).
+- Decisions: `ip_in_subnet` prints nothing and returns 1 for any non-IPv4 or a bad prefix (0-32 accepted); `validate_lan_records` reads the IP after the first comma and prints the 003-style text on stderr. `ServerRecordError` is matched with `errors.As` before the sentinel loop in `writeError`.
+- Notes: `wait_ips` still has its old `<vm...>` signature; Phase 17 changes it. In this shell the default `go` mismatches GOROOT: put `~/.local/share/mise/installs/go/1.27.3/bin` first in PATH to run tests.

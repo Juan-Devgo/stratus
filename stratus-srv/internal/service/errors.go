@@ -142,7 +142,18 @@ var (
 	ErrRecordExists          = errors.New("La VM ya tiene un registro DNS")
 	ErrIndexMissing          = errors.New("El archivo debe contener index.html en la raíz")
 	ErrPackageBlocked        = errors.New("paquete protegido")
+	ErrVMNotOnLAN            = errors.New("La VM no tiene una dirección en la LAN")
 )
+
+// ServerRecordError indica que la VM es servidor de un balanceador y por eso no tiene registro
+// propio: se registra el balanceador (REQ-23). LB es el nombre del balanceador.
+type ServerRecordError struct {
+	LB string
+}
+
+func (e *ServerRecordError) Error() string {
+	return "La VM es servidor del balanceador " + e.LB + "; registre el balanceador"
+}
 
 // PackageBlockedError indica que 001 no puede quitar o instalar un paquete en un servidor web o en
 // el servidor DNS (REQ-7, REQ-18). Message es el texto de la especificación, que nombra el paquete.

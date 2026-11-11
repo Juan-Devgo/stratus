@@ -72,6 +72,7 @@ var sentinelStatus = []struct {
 	{service.ErrDNSIPInUse, http.StatusConflict, service.ErrDNSIPInUse.Error()},
 	{service.ErrDNSOff, http.StatusConflict, service.ErrDNSOff.Error()},
 	{service.ErrRecordExists, http.StatusConflict, service.ErrRecordExists.Error()},
+	{service.ErrVMNotOnLAN, http.StatusConflict, service.ErrVMNotOnLAN.Error()},
 	{service.ErrIndexMissing, http.StatusUnprocessableEntity, service.ErrIndexMissing.Error()},
 	{service.ErrZoneInvalid, http.StatusInternalServerError, service.ErrZoneInvalid.Error()},
 	{service.ErrTimeout, http.StatusGatewayTimeout, "La operación superó el tiempo límite de 15 minutos"},
@@ -100,6 +101,11 @@ func writeError(w http.ResponseWriter, err error) {
 	var resolvers *service.ResolversSetError
 	if errors.As(err, &resolvers) {
 		writeJSON(w, http.StatusConflict, errorBody{resolvers.Error()})
+		return
+	}
+	var serverRecord *service.ServerRecordError
+	if errors.As(err, &serverRecord) {
+		writeJSON(w, http.StatusConflict, errorBody{serverRecord.Error()})
 		return
 	}
 	if errors.Is(err, service.ErrInvalidInput) {

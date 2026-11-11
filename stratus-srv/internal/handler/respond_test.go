@@ -110,6 +110,8 @@ func TestAC23_AC29_AC35_AC41_WriteErrorMapsHTTPaaSErrors(t *testing.T) {
 		{"zona inválida", service.ErrZoneInvalid, http.StatusInternalServerError, "Zona DNS inválida; se mantuvo la anterior"},
 		{"paquete protegido", &service.PackageBlockedError{Message: blocked}, http.StatusConflict, blocked},
 		{"resolvedores", &service.ResolversSetError{VMs: []string{"vm1"}}, http.StatusConflict, "Quite primero el resolvedor DNS de las VMs: vm1"},
+		{"sin dirección en la LAN", fmt.Errorf("add_records: %w", service.ErrVMNotOnLAN), http.StatusConflict, "La VM no tiene una dirección en la LAN"},
+		{"servidor de un balanceador", &service.ServerRecordError{LB: "lb1"}, http.StatusConflict, "La VM es servidor del balanceador lb1; registre el balanceador"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

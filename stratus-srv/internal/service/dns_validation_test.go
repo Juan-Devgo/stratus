@@ -63,3 +63,33 @@ func TestAC24_DNSConfigAddress(t *testing.T) {
 		t.Errorf("Address() = %q, se esperaba 192.168.1.53", got)
 	}
 }
+
+// AC-59: una dirección está en la LAN si cae dentro del prefijo de APP_DNS_IP (REQ-22).
+func TestAC59_OnLAN(t *testing.T) {
+	tests := []struct {
+		name string
+		cidr string
+		ip   string
+		want bool
+	}{
+		{"dentro de 192.168.1.0/24", "192.168.1.53/24", "192.168.1.40", true},
+		{"NAT de VirtualBox", "192.168.1.53/24", "10.0.2.15", false},
+		{"link-local", "192.168.1.53/24", "169.254.3.7", false},
+		{"IP vacía", "192.168.1.53/24", "", false},
+		{"IP que no es IPv4", "192.168.1.53/24", "abc", false},
+		{"otra LAN 10.0.0.0/24", "10.0.0.53/24", "10.0.0.40", true},
+		{"prefijo que no es /24", "192.168.1.53/22", "192.168.2.9", true},
+		{"fuera de un /22", "192.168.1.53/22", "192.168.4.9", false},
+		{"IPv6", "192.168.1.53/24", "fd00::40", false},
+		{"configuración sin prefijo", "192.168.1.53", "192.168.1.40", false},
+		{"configuración vacía", "", "192.168.1.40", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DNSConfig{IP: tt.cidr}
+			if got := cfg.OnLAN(tt.ip); got != tt.want {
+				t.Errorf("OnLAN(%q) con %q = %v, se esperaba %v", tt.ip, tt.cidr, got, tt.want)
+			}
+		})
+	}
+}

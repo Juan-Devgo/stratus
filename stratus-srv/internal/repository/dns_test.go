@@ -75,6 +75,24 @@ func TestAC1_WebAndDNSRepositories_DNS(t *testing.T) {
 		if err := repo.DeleteRecord(ctx, "vm1"); err != nil {
 			t.Errorf("DeleteRecord repetido: %v", err)
 		}
+		// DeleteRecords: una lista vacía no cambia nada; una lista borra solo esas filas.
+		if err := repo.DeleteRecords(ctx, nil); err != nil {
+			t.Fatalf("DeleteRecords(nil): %v", err)
+		}
+		recs, _ = repo.Records(ctx)
+		if want := []DNSRecord{{"web-a", "192.168.1.45"}, {"web-b", "192.168.1.41"}}; !reflect.DeepEqual(recs, want) {
+			t.Errorf("tras DeleteRecords(nil) Records = %+v, se esperaba %+v", recs, want)
+		}
+		if err := repo.InsertRecords(ctx, []DNSRecord{{"vm3", "192.168.1.60"}}); err != nil {
+			t.Fatalf("InsertRecords vm3: %v", err)
+		}
+		if err := repo.DeleteRecords(ctx, []string{"web-a", "vm3", "nada"}); err != nil {
+			t.Fatalf("DeleteRecords: %v", err)
+		}
+		recs, _ = repo.Records(ctx)
+		if want := []DNSRecord{{"web-b", "192.168.1.41"}}; !reflect.DeepEqual(recs, want) {
+			t.Errorf("tras DeleteRecords Records = %+v, se esperaba %+v", recs, want)
+		}
 	})
 
 	t.Run("resolvedores", func(t *testing.T) {

@@ -155,6 +155,29 @@ func (r *DNSRepository) DeleteRecord(ctx context.Context, vm string) error {
 	return nil
 }
 
+// DeleteRecords quita los registros de las VMs indicadas en una transacción (refresco, REQ-27).
+// Una lista vacía no cambia nada y una VM sin registro se ignora.
+func (r *DNSRepository) DeleteRecords(ctx context.Context, vms []string) error {
+	if len(vms) == 0 {
+		return nil
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("quitar registros DNS: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // tras Commit no hace nada
+
+	for _, vm := range vms {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM dns_records WHERE vm = ?`, vm); err != nil {
+			return fmt.Errorf("quitar registro DNS de %s: %w", vm, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("quitar registros DNS: %w", err)
+	}
+	return nil
+}
+
 // UpdateRecordIPs guarda la IP de cada registro existente en una transacción (refresco, REQ-27).
 func (r *DNSRepository) UpdateRecordIPs(ctx context.Context, recs []DNSRecord) error {
 	tx, err := r.db.BeginTx(ctx, nil)

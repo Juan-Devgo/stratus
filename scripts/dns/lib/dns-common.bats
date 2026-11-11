@@ -87,6 +87,30 @@ setup() {
   [ "$status" -eq 1 ]
 }
 
+@test "AC-59 ip_in_subnet y validate_lan_records" {
+  ip_in_subnet 192.168.1.53/24 192.168.1.40
+  run ip_in_subnet 192.168.1.53/24 10.0.2.15
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  run ip_in_subnet 192.168.1.53/24 169.254.3.7
+  [ "$status" -eq 1 ]
+  ip_in_subnet 10.0.0.53/24 10.0.0.40
+  # Un prefijo que no es /24 usa la máscara completa
+  ip_in_subnet 192.168.1.53/22 192.168.2.9
+  run ip_in_subnet 192.168.1.53/22 192.168.4.9
+  [ "$status" -eq 1 ]
+
+  validate_lan_records 192.168.1.53/24
+  validate_lan_records 192.168.1.53/24 web-a,192.168.1.40 vm1,192.168.1.41
+  validate_lan_records 10.0.0.53/24 vm1,10.0.0.40
+  run --separate-stderr validate_lan_records 192.168.1.53/24 web-a,192.168.1.40 vm1,10.0.2.15
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Registro inválido: la dirección no está en la LAN"* ]]
+  run --separate-stderr validate_lan_records 192.168.1.53/24 vm1,169.254.3.7
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"Registro inválido: la dirección no está en la LAN"* ]]
+}
+
 @test "REQ-27 validate_wait_vms acepta - o nombres separados por comas" {
   validate_wait_vms -
   validate_wait_vms vm1

@@ -22,6 +22,18 @@ func (c DNSConfig) Address() string {
 	return ip
 }
 
+// OnLAN dice si ip es una IPv4 dentro del prefijo de la IP del servidor DNS (005 REQ-22).
+// Devuelve false si cualquiera de las dos no se puede leer. Que la VM no sea servidor de un
+// balanceador se comprueba aparte (lbTopology): la dirección sola no lo dice.
+func (c DNSConfig) OnLAN(ip string) bool {
+	p, err := netip.ParsePrefix(c.IP)
+	if err != nil || !p.Addr().Is4() {
+		return false
+	}
+	a, err := netip.ParseAddr(ip)
+	return err == nil && a.Is4() && p.Contains(a)
+}
+
 var dnsLabelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // ValidateDNSConfig devuelve ErrDNSConfigIncomplete si la IP, la puerta de enlace, el dominio o

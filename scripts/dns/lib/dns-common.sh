@@ -15,6 +15,9 @@
 #   validate_forwarders <lista>            1 a 3 IPv4 separadas por comas
 #   validate_records <dns> [registro...]   "<vm>,<ipv4>", hasta 200, VMs únicas, ninguna es <dns>
 #   validate_wait_vms <lista>              "-" o nombres de VM separados por comas
+#   ip_in_subnet <ip/prefijo> <ip>         0 si la IPv4 está en la subred del CIDR, si no 1 (REQ-22)
+#   validate_lan_records <ip/prefijo> [registro...]
+#                                          1 si alguna IPv4 está fuera de la subred (REQ-22)
 #   ip_in_use <interfaz> <ip>              sonda ARP e ICMP de 1 s cada una (REQ-15)
 #   render_options <ip/prefijo> <lista>    imprime /etc/bind/named.conf.options (REQ-16)
 #   render_zone <dns> <dominio> <ip_dns> [registro...]
@@ -166,6 +169,32 @@ validate_wait_vms() {
     echo 'wait_vms inválido: "-" o nombres de VM separados por comas' >&2
     return 1
   fi
+}
+
+# 2.7 ip_in_subnet <ip/prefijo> <ip>: 0 si la IPv4 cae dentro de la subred del CIDR, si no 1.
+#     Sin salida: quien llama decide el mensaje. Una entrada que no es IPv4 también da 1.
+ip_in_subnet() {
+  local cidr_ip="${1%/*}" prefix="${1##*/}" ip="${2-}" mask a b
+  if [[ ! "$cidr_ip" =~ $_IPV4_RE || ! "$prefix" =~ ^([0-9]|[12][0-9]|3[0-2])$ || ! "$ip" =~ $_IPV4_RE ]]; then
+    return 1
+  fi
+  mask="$(_mask "$prefix")"
+  a="$(_ip_to_int "$ip")"
+  b="$(_ip_to_int "$cidr_ip")"
+  (((a & mask) == (b & mask)))
+}
+
+# 2.8 validate_lan_records <ip/prefijo> [registro...]: cada "<vm>,<ipv4>" debe estar en la subred
+#     de la IP del servidor DNS (REQ-22). Segunda barrera de P3: el backend ya filtró.
+validate_lan_records() {
+  local cidr="$1" rec
+  shift
+  for rec in "$@"; do
+    if ! ip_in_subnet "$cidr" "${rec#*,}"; then
+      echo "Registro inválido: la dirección no está en la LAN" >&2
+      return 1
+    fi
+  done
 }
 
 # == 3. ip_in_use <interfaz> <ip> (REQ-15, AC-25) ==

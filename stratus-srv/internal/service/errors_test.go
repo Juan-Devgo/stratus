@@ -130,6 +130,7 @@ func TestAC23_HTTPaaSSentinelTexts(t *testing.T) {
 		{ErrZoneInvalid, "Zona DNS inválida; se mantuvo la anterior"},
 		{ErrRecordExists, "La VM ya tiene un registro DNS"},
 		{ErrIndexMissing, "El archivo debe contener index.html en la raíz"},
+		{ErrVMNotOnLAN, "La VM no tiene una dirección en la LAN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
@@ -157,5 +158,18 @@ func TestAC29_ResolversSetError(t *testing.T) {
 	err := &ResolversSetError{VMs: []string{"vm1", "vm2"}}
 	if got, want := err.Error(), "Quite primero el resolvedor DNS de las VMs: vm1, vm2"; got != want {
 		t.Errorf("Error() = %q, se esperaba %q", got, want)
+	}
+}
+
+// AC-31: ServerRecordError nombra el balanceador del que la VM es servidor (REQ-23).
+func TestAC31_ServerRecordError(t *testing.T) {
+	err := fmt.Errorf("add_records: %w", &ServerRecordError{LB: "lb1"})
+	want := "add_records: La VM es servidor del balanceador lb1; registre el balanceador"
+	if got := err.Error(); got != want {
+		t.Errorf("Error() = %q, se esperaba %q", got, want)
+	}
+	var target *ServerRecordError
+	if !errors.As(err, &target) || target.LB != "lb1" {
+		t.Error("errors.As no recuperó *ServerRecordError")
 	}
 }

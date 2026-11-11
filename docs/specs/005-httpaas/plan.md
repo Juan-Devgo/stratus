@@ -2,7 +2,7 @@
 
 ## 1. Metadata
 - Spec: `docs/specs/005-httpaas/spec.md`
-- Updated: 2026-11-11 (amendment: FQDN links also in the web servers table; REQ-45, AC-65). Earlier on 2026-11-11 (amendment: abandoned requests are neither recorded nor logged as internal errors; REQ-50, AC-71). Earlier on 2026-11-11 (amendment: copy buttons on IPs, links on DNS record names and the "Zona" tab; US-10, US-11, REQ-43 to REQ-49, AC-63 to AC-70). Earlier on 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
+- Updated: 2026-11-11 (amendment: the DNS records table drops the "IP del registro" column; REQ-23, REQ-43, AC-58, AC-63). Earlier on 2026-11-11 (amendment: FQDN links also in the web servers table; REQ-45, AC-65). Earlier on 2026-11-11 (amendment: abandoned requests are neither recorded nor logged as internal errors; REQ-50, AC-71). Earlier on 2026-11-11 (amendment: copy buttons on IPs, links on DNS record names and the "Zona" tab; US-10, US-11, REQ-43 to REQ-49, AC-63 to AC-70). Earlier on 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
 - Constitution version: 2.1.0
 
 ## 2. Constitution check
@@ -175,6 +175,7 @@ Amendment 2026-11-11, zone view and table helpers (tests next to each):
 - create: `stratus-ui/src/components/CopyButton.tsx`, `IpCell.tsx` - copy button and IP cell ("-" without button).
 - create: `stratus-ui/src/components/ui/tabs.tsx` - shadcn `tabs` (CLI).
 - modify: `stratus-ui/src/features/web/WebTable.tsx`, `features/haproxy/LbTable.tsx`, `ServerTable.tsx`, `features/dns/RecordTable.tsx` - `IpCell`; FQDN link in `RecordTable` and `WebTable`.
+- modify: `stratus-ui/src/features/dns/RecordTable.tsx` - no "IP del registro" column; `record_ip` only drives the checkbox and "Quitar registro".
 - create: `stratus-ui/src/components/FqdnLink.tsx` - FQDN link to `http://<fqdn>/` in a new tab, "-" without link; used by `RecordTable` and `WebTable`.
 - modify: `stratus-ui/src/features/dns/{types,api}.ts` - `ZoneRecord`, `getZone`.
 - create: `stratus-ui/src/features/dns/ZoneTable.tsx` - the "Zona" tab.
@@ -653,7 +654,7 @@ ZoneTable({ version })                            // features/dns; reads on moun
 | TestAC58_ZoneSetSkipsStoredNonLANRecords | unit | `stratus-srv/internal/service/dns_records_test.go` | US-5, US-6 / REQ-22 / AC-58 | given stored `web-a,10.10.1.11` (assigned) and `vm3,10.10.2.15` - when vm1 is added and when a record is removed - then the script argv has neither spec |
 | TestAC58_OverviewHidesServerRecord | unit | `stratus-srv/internal/service/dns_server_test.go` | US-5 / REQ-23 / AC-58 | given web-a in lb1 with a stored record - then its view has role `server`, fqdn "" and record_ip "" |
 | TestAC1_WebAndDNSRepositories_DNS (new case) | unit | `stratus-srv/internal/repository/dns_test.go` | US-6 / REQ-27 / AC-58 | DeleteRecords deletes the listed rows in one transaction; an empty list changes nothing |
-| AC-58 hidden record has no Quitar registro | unit | `stratus-ui/src/features/dns/RecordTable.test.tsx` | US-5 / REQ-23 / AC-58 | given web-a role `server`, fqdn "" and record_ip "" - then both cells "-", no "Quitar registro" and no checkbox in its row |
+| AC-58 hidden record has no Quitar registro | unit | `stratus-ui/src/features/dns/RecordTable.test.tsx` | US-5 / REQ-23 / AC-58 | given web-a role `server`, fqdn "" and record_ip "" - then FQDN "-", no "Quitar registro" and no checkbox in its row |
 | AC-58 refresh result names the removed VMs | unit | `stratus-ui/src/features/dns/DnsServerPanel.test.tsx` | US-6 / REQ-27 / AC-58 | given the message "Registros actualizados; registros quitados: web-a, vm3" - then it shows |
 | AC-58 upgrade cleanup | manual | real host demo | US-6 / REQ-27 / AC-58 | stored internal records, "Actualizar registros", `dig` |
 | AC-59 ip_in_subnet y validate_lan_records | unit | `scripts/dns/lib/dns-common.bats` | US-5, US-6 / REQ-22 / AC-59 | given `192.168.1.53/24` - `192.168.1.40` passes, `10.0.2.15` and `169.254.3.7` fail; given `10.0.0.53/24` - `10.0.0.40` passes |

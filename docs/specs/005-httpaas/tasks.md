@@ -302,3 +302,9 @@ Removed on 2026-11-11 by Phase 21.
 - [x] T246 Write the AC-65 link test in `stratus-ui/src/features/web/WebTable.test.tsx` (REQ-45, AC-65)
 - [x] T247 Move the FQDN link of `RecordTable.tsx` to `stratus-ui/src/components/FqdnLink.tsx` and use it in `RecordTable.tsx` and `WebTable.tsx` (REQ-45, AC-65)
 - [x] T248 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path
+
+## Phase 28: Amendment 2026-11-11: no record IP column in the DNS records table (REQ-23)
+- [x] T249 Amend `spec.md` (REQ-23, REQ-43, AC-58, AC-63, clarification), `plan.md` and this file, and commit the docs
+- [ ] T250 Change the AC-63 test and add a headers test without "IP del registro" in `stratus-ui/src/features/dns/RecordTable.test.tsx` (REQ-23, REQ-43, AC-63)
+- [ ] T251 Remove the "IP del registro" column from `stratus-ui/src/features/dns/RecordTable.tsx` (REQ-23, AC-58, AC-63)
+- [ ] T252 Run `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build`, then commit the phase staging only its files by path

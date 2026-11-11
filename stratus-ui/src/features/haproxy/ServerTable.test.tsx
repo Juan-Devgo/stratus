@@ -126,3 +126,12 @@ describe("ServerTable", () => {
     expect(screen.getByText("Advertencia")).toBeInTheDocument();
   });
 });
+
+describe("ServerTable copy buttons", () => {
+  it("AC-63 each internal IP has a copy button", () => {
+    render(<ServerTable servers={servers} lbOff={false} lb="lb1" onDone={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Copiar 10.10.1.11" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copiar 10.10.1.12" })).toBeInTheDocument();
+  });
+});

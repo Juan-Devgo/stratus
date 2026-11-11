@@ -124,3 +124,23 @@ describe("RecordTable", () => {
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
   });
 });
+
+describe("RecordTable copy buttons and links", () => {
+  it("AC-63 IP and record IP have copy buttons; - has none", () => {
+    render(<RecordTable vms={[WEB_A, VM2]} busy={false} onDone={vi.fn()} />);
+
+    // web-a tiene la misma IP actual y de registro: un botón por columna.
+    expect(within(rowOf("web-a")).getAllByRole("button", { name: "Copiar 192.168.1.40" })).toHaveLength(2);
+    expect(within(rowOf("vm2")).queryByRole("button", { name: /^Copiar/ })).not.toBeInTheDocument();
+  });
+
+  it("AC-65 the FQDN is a link that opens in a new tab", () => {
+    render(<RecordTable vms={[WEB_A, VM2]} busy={false} onDone={vi.fn()} />);
+
+    const link = within(rowOf("web-a")).getByRole("link", { name: "web-a.stratus.lan" });
+    expect(link).toHaveAttribute("href", "http://web-a.stratus.lan/");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(rowOf("vm2")).queryByRole("link")).not.toBeInTheDocument();
+  });
+});

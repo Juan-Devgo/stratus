@@ -52,3 +52,13 @@ describe("LbTable", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 });
+
+describe("LbTable copy buttons", () => {
+  it("AC-63 the bridged IP has a copy button and - has none", () => {
+    render(<LbTable lbs={lbs} selected={null} onSelect={vi.fn()} />);
+
+    const [first, second] = screen.getAllByRole("row").slice(1);
+    expect(within(first).getByRole("button", { name: "Copiar 192.168.1.60" })).toBeInTheDocument();
+    expect(within(second).queryByRole("button", { name: /^Copiar/ })).not.toBeInTheDocument();
+  });
+});

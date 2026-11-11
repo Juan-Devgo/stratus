@@ -271,11 +271,11 @@ Removed on 2026-11-11 by Phase 21.
 - [x] T225 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...` and `bats scripts/dns/show-zone.bats`, then commit the phase staging only its files by path
 
 ## Phase 23: Amendment 2026-11-11: copy buttons and links (US-10)
-- [ ] T226 Write the AC-63 and AC-64 tests in `stratus-ui/src/components/CopyButton.test.tsx` (REQ-44, AC-63, AC-64)
-- [ ] T227 Implement `CopyButton` and `IpCell` in `stratus-ui/src/components/` (REQ-43, REQ-44, REQ-40, AC-63, AC-64)
-- [ ] T228 Write the AC-63 copy-button tests in `stratus-ui/src/features/web/WebTable.test.tsx`, `stratus-ui/src/features/haproxy/LbTable.test.tsx`, `stratus-ui/src/features/haproxy/ServerTable.test.tsx` and `stratus-ui/src/features/dns/RecordTable.test.tsx`, and the AC-65 link test in `RecordTable.test.tsx` (REQ-43, REQ-45, AC-63, AC-65)
-- [ ] T229 Use `IpCell` in `WebTable.tsx`, `LbTable.tsx`, `ServerTable.tsx` and `RecordTable.tsx`, and the FQDN link in `RecordTable.tsx` (REQ-43, REQ-45, AC-63, AC-65)
-- [ ] T230 Run `cd stratus-ui && pnpm typecheck && pnpm test`, then commit the phase staging only its files by path
+- [x] T226 Write the AC-63 and AC-64 tests in `stratus-ui/src/components/CopyButton.test.tsx` (REQ-44, AC-63, AC-64)
+- [x] T227 Implement `CopyButton` and `IpCell` in `stratus-ui/src/components/` (REQ-43, REQ-44, REQ-40, AC-63, AC-64)
+- [x] T228 Write the AC-63 copy-button tests in `stratus-ui/src/features/web/WebTable.test.tsx`, `stratus-ui/src/features/haproxy/LbTable.test.tsx`, `stratus-ui/src/features/haproxy/ServerTable.test.tsx` and `stratus-ui/src/features/dns/RecordTable.test.tsx`, and the AC-65 link test in `RecordTable.test.tsx` (REQ-43, REQ-45, AC-63, AC-65)
+- [x] T229 Use `IpCell` in `WebTable.tsx`, `LbTable.tsx`, `ServerTable.tsx` and `RecordTable.tsx`, and the FQDN link in `RecordTable.tsx` (REQ-43, REQ-45, AC-63, AC-65)
+- [x] T230 Run `cd stratus-ui && pnpm typecheck && pnpm test`, then commit the phase staging only its files by path
 
 ## Phase 24: Amendment 2026-11-11: zone tab (US-11)
 - [ ] T231 Add shadcn `tabs` with the shadcn CLI in `stratus-ui/src/components/ui/tabs.tsx` (REQ-46, REQ-40)

@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { IpCell } from "@/components/IpCell";
 import { NoticeAlert } from "@/components/NoticeAlert";
 import { WarningAlert } from "@/components/WarningAlert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -81,7 +82,9 @@ export function ServerTable({ servers, lbOff, lb, onDone }: Props) {
               <TableRow key={server.name}>
                 <TableCell>{server.name}</TableCell>
                 <TableCell>{server.vm}</TableCell>
-                <TableCell>{server.ip}</TableCell>
+                <TableCell>
+                  <IpCell ip={server.ip} />
+                </TableCell>
                 <TableCell>{server.port}</TableCell>
                 <TableCell>{server.state}</TableCell>
                 <TableCell>

@@ -125,3 +125,8 @@
 - Files: `scripts/dns/show-zone.{sh,bats}`, `scripts/dns/test_helper.bash` (`ZONE_DUMP`); `service/{errors,dns_zone}.go` + tests; `handler/{dns,respond}.go` + tests. The amended docs went in their own commit (T215).
 - Decisions: `show-zone.sh` reads with `named-checkzone -D -o -` and filters with `awk` on the host (third field `IN`, numeric TTL), so "loaded serial"/"OK" lines never reach the backend. `Zone` returns `[]` (never nil) for an empty zone. A malformed line is an error, not a partial zone. `ErrDNSOffZone` is a separate sentinel because `ErrDNSOff` talks about changing records.
 - Notes: the exit-7 and exit-3 bats rebuild the stubs first (stub answers are appended, the first match wins). shellcheck is not installed on this host. `bats -r -j 8 scripts/dns/` 90 ok; gofmt clean, golangci-lint 0 issues, `go test ./...` ok.
+
+## Phase 23: Amendment 2026-11-11: copy buttons and links
+- Files: new `stratus-ui/src/components/{CopyButton,IpCell}.tsx` and `CopyButton.test.tsx`; `features/web/WebTable`, `features/haproxy/{LbTable,ServerTable}`, `features/dns/RecordTable` (`.tsx` and `.test.tsx`).
+- Decisions: `CopyButton` exposes `data-copied` for the check state (tests read it; the accessible name stays "Copiar <ip>"). The fallback without `navigator.clipboard` focuses a hidden readonly `textarea` and calls `execCommand("copy")`; a false return or a rejected `writeText` shows the toast. `IpCell` renders a bare "-" so the existing "-" cell assertions still hold. The FQDN link uses the `link` button classes without `Button` (a plain `<a>`).
+- Notes: UI typecheck ok, 279 tests pass.

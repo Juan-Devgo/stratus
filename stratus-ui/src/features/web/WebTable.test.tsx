@@ -91,3 +91,13 @@ describe("WebTable", () => {
     }
   });
 });
+
+describe("WebTable copy buttons", () => {
+  it("AC-63 the IP has a copy button and - has none", () => {
+    render(<WebTable servers={SERVERS} busy={false} onDone={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Copiar 192.168.1.40" })).toBeInTheDocument();
+    const rowB = screen.getByRole("cell", { name: "web-b" }).closest("tr") as HTMLElement;
+    expect(within(rowB).queryByRole("button", { name: /^Copiar/ })).not.toBeInTheDocument();
+  });
+});

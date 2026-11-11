@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { IpCell } from "@/components/IpCell";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -93,7 +94,9 @@ export function WebTable({ servers, busy, onDone }: Props) {
                 <TableCell className="font-medium">{server.name}</TableCell>
                 <TableCell>{TYPE_LABELS[server.type]}</TableCell>
                 <TableCell>{STATE_LABELS[server.state]}</TableCell>
-                <TableCell>{server.ip || "-"}</TableCell>
+                <TableCell>
+                  <IpCell ip={server.ip} />
+                </TableCell>
                 <TableCell>{server.fqdn || "-"}</TableCell>
                 <TableCell>{server.lb || "-"}</TableCell>
               </TableRow>

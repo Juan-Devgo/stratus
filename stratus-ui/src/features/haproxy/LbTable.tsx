@@ -1,5 +1,6 @@
 import { ServerIcon } from "lucide-react";
 
+import { IpCell } from "@/components/IpCell";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -44,7 +45,9 @@ export function LbTable({ lbs, selected, onSelect }: Props) {
           <TableRow key={lb.name} data-state={lb.name === selected ? "selected" : undefined}>
             <TableCell>{lb.name}</TableCell>
             <TableCell>{STATE_LABELS[lb.state]}</TableCell>
-            <TableCell>{lb.ip || "-"}</TableCell>
+            <TableCell>
+              <IpCell ip={lb.ip} />
+            </TableCell>
             <TableCell>{lb.subnet}</TableCell>
             <TableCell>{lb.frontend_port}</TableCell>
             <TableCell>{lb.server_count}</TableCell>

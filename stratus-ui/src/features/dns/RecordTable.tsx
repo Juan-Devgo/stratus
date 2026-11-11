@@ -1,6 +1,7 @@
 import { CircleAlertIcon, CircleCheckIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
+import { IpCell } from "@/components/IpCell";
 import { OperationResult } from "@/components/OperationResult";
 import {
   AlertDialog,
@@ -34,7 +35,8 @@ function kindLabel(vm: DnsVm): string {
 
 // Las VMs que no son el servidor DNS, con su registro A. Las que no tienen registro llevan una
 // casilla para "Agregar registros" (REQ-23), que muestra el resultado de cada una; las que lo
-// tienen, "Quitar registro" con confirmación (REQ-24).
+// tienen, "Quitar registro" con confirmación (REQ-24). Cada IP lleva su botón de copiar (REQ-43)
+// y cada FQDN es un enlace que se abre en otra pestaña (REQ-45).
 export function RecordTable({ vms, busy, onDone }: Props) {
   const { pending, result, run } = useOperation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -118,9 +120,27 @@ export function RecordTable({ vms, busy, onDone }: Props) {
                 <TableCell className="font-medium">{vm.name}</TableCell>
                 <TableCell>{kindLabel(vm)}</TableCell>
                 <TableCell>{STATE_LABELS[vm.state]}</TableCell>
-                <TableCell>{vm.ip || "-"}</TableCell>
-                <TableCell>{vm.fqdn || "-"}</TableCell>
-                <TableCell>{vm.record_ip || "-"}</TableCell>
+                <TableCell>
+                  <IpCell ip={vm.ip} />
+                </TableCell>
+                <TableCell>
+                  {/* El enlace solo resuelve si el equipo del navegador usa el servidor DNS (REQ-45). */}
+                  {vm.fqdn ? (
+                    <a
+                      href={`http://${vm.fqdn}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {vm.fqdn}
+                    </a>
+                  ) : (
+                    "-"
+                  )}
+                </TableCell>
+                <TableCell>
+                  <IpCell ip={vm.record_ip} />
+                </TableCell>
                 <TableCell>
                   {vm.record_ip !== "" && (
                     <Button variant="outline" size="sm" disabled={disabled} onClick={() => setRemoving(vm.name)}>

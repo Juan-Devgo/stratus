@@ -2,7 +2,7 @@
 
 ## 1. Metadata
 - Spec: `docs/specs/005-httpaas/spec.md`
-- Updated: 2026-11-11 (amendment: abandoned requests are neither recorded nor logged as internal errors; REQ-50, AC-71). Earlier on 2026-11-11 (amendment: copy buttons on IPs, links on DNS record names and the "Zona" tab; US-10, US-11, REQ-43 to REQ-49, AC-63 to AC-70). Earlier on 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
+- Updated: 2026-11-11 (amendment: FQDN links also in the web servers table; REQ-45, AC-65). Earlier on 2026-11-11 (amendment: abandoned requests are neither recorded nor logged as internal errors; REQ-50, AC-71). Earlier on 2026-11-11 (amendment: copy buttons on IPs, links on DNS record names and the "Zona" tab; US-10, US-11, REQ-43 to REQ-49, AC-63 to AC-70). Earlier on 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
 - Constitution version: 2.1.0
 
 ## 2. Constitution check
@@ -174,7 +174,8 @@ Amendment 2026-11-11, zone view and table helpers (tests next to each):
 - modify: `stratus-srv/internal/handler/dns.go` - `GET /api/dns/zone`.
 - create: `stratus-ui/src/components/CopyButton.tsx`, `IpCell.tsx` - copy button and IP cell ("-" without button).
 - create: `stratus-ui/src/components/ui/tabs.tsx` - shadcn `tabs` (CLI).
-- modify: `stratus-ui/src/features/web/WebTable.tsx`, `features/haproxy/LbTable.tsx`, `ServerTable.tsx`, `features/dns/RecordTable.tsx` - `IpCell`; FQDN link in `RecordTable`.
+- modify: `stratus-ui/src/features/web/WebTable.tsx`, `features/haproxy/LbTable.tsx`, `ServerTable.tsx`, `features/dns/RecordTable.tsx` - `IpCell`; FQDN link in `RecordTable` and `WebTable`.
+- create: `stratus-ui/src/components/FqdnLink.tsx` - FQDN link to `http://<fqdn>/` in a new tab, "-" without link; used by `RecordTable` and `WebTable`.
 - modify: `stratus-ui/src/features/dns/{types,api}.ts` - `ZoneRecord`, `getZone`.
 - create: `stratus-ui/src/features/dns/ZoneTable.tsx` - the "Zona" tab.
 - modify: `stratus-ui/src/routes/Dns.tsx` - tabs "VMs" and "Zona" in the "Registros" card; `zoneVersion` counter bumped by `reload`.
@@ -673,7 +674,7 @@ ZoneTable({ version })                            // features/dns; reads on moun
 | TestAC66_ZoneRoute | unit | `stratus-srv/internal/handler/dns_test.go` | US-11 / REQ-46 / AC-66 | GET `/api/dns/zone` - 200 `{records:[...]}` |
 | AC-63 copies the IP / AC-64 toast on failure | unit | `stratus-ui/src/components/CopyButton.test.tsx` | US-10 / REQ-44 / AC-63, AC-64 | click "Copiar 192.168.1.40" - writeText called and check icon; writeText rejects - toast "No se pudo copiar 192.168.1.40" |
 | AC-63 copy button next to each IP | unit | `WebTable.test.tsx`, `LbTable.test.tsx`, `ServerTable.test.tsx`, `RecordTable.test.tsx` | US-10 / REQ-43 / AC-63 | an IP cell has "Copiar <ip>"; a "-" cell has none |
-| AC-65 the FQDN is a link | unit | `stratus-ui/src/features/dns/RecordTable.test.tsx` | US-10 / REQ-45 / AC-65 | link `http://web-a.stratus.lan/`, `target=_blank`, `rel=noopener noreferrer`; no link for "-" |
+| AC-65 the FQDN is a link | unit | `stratus-ui/src/features/dns/RecordTable.test.tsx`, `stratus-ui/src/features/web/WebTable.test.tsx` | US-10 / REQ-45 / AC-65 | link `http://web-a.stratus.lan/`, `target=_blank`, `rel=noopener noreferrer`; no link for "-" |
 | AC-66, AC-67, AC-68 zone tab | unit | `stratus-ui/src/features/dns/ZoneTable.test.tsx`, `stratus-ui/src/routes/Dns.test.tsx` | US-11 / REQ-46, REQ-47, REQ-49 / AC-66, AC-67, AC-68 | "VMs" default; "Zona" lists the rows with copy buttons on A values; Recargar and an operation with the tab open read again; error text shown; empty zone text |
 | AC-70 zone before and after removing a record | manual | real host demo | US-11 / REQ-46 / AC-70 | open "Zona", remove `vm1`'s record, open again, `dig` |
 | TestAC71_CancelledListNotRecorded | unit | `stratus-srv/internal/service/vm_status_test.go` | US-9 / REQ-50 / AC-71 | cancelled context and a failing runner - no failed row; live context and the same failure - failed row |
@@ -729,7 +730,7 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 | REQ-40 | shadcn components and Spanish texts in `features/web`, `features/dns` | AC-1, AC-22, AC-30 |
 | REQ-43 | `IpCell` in `WebTable`, `LbTable`, `ServerTable`, `RecordTable`, `ZoneTable` | AC-63, AC-66 |
 | REQ-44 | `CopyButton` | AC-63, AC-64 |
-| REQ-45 | FQDN link in `RecordTable` | AC-65 |
+| REQ-45 | `FqdnLink` in `RecordTable` and `WebTable` | AC-65 |
 | REQ-46 | `show-zone.sh`, `DNSService.Zone`, `GET /api/dns/zone`, `ZoneTable`, tabs in `Dns.tsx` | AC-66, AC-70 |
 | REQ-47 | `ZoneTable` version and Recargar, `Dns.tsx` `zoneVersion` | AC-67 |
 | REQ-48 | `show-zone.sh`, `ops.run` DNS server lock | AC-66, AC-69 |

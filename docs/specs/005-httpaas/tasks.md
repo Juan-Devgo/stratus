@@ -119,6 +119,7 @@
 - [x] T102 Implement `POST /api/dns/records/refresh` in `stratus-srv/internal/handler/dns.go` (REQ-27, AC-39)
 
 ## Phase 9: DNS server as resolver (US-7)
+Removed on 2026-11-11 by Phase 21.
 - [x] T103 Write the AC-42 (dhclient block and `nameserver` prepended; dhcpcd hook; no client: exit 5), AC-43 (poweroff VM: exit 7, no ssh; `--jump` routed), AC-55 and AC-56 tests in `scripts/dns/set-resolver.bats` (REQ-31, REQ-32, REQ-39, AC-42, AC-43, AC-55, AC-56)
 - [x] T104 Implement `scripts/dns/set-resolver.sh` (REQ-31, REQ-32, REQ-39, AC-42, AC-43, AC-55, AC-56)
 - [x] T105 Write the AC-42 (block or hook removed, `nameserver` lines deleted, a second run succeeds), AC-55 and AC-56 tests in `scripts/dns/unset-resolver.bats` (REQ-31, REQ-39, AC-42, AC-55, AC-56)
@@ -176,7 +177,7 @@
 - [x] T147 Document the Apache, Nginx and DNS base disks in `docs/guide-base-images.md` and the new variables and `arping` with `cap_net_raw` in `docs/guide-environment.md` (REQ-2, REQ-13, REQ-15, AC-22, AC-25)
 - [x] T148 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/`, and fix every failure (REQ-34, REQ-39, AC-55, AC-56)
 - [ ] T149 Run the real-host demo for web servers: AC-4, AC-10, AC-11, AC-15, AC-18, AC-45 and AC-46 (REQ-2, REQ-4, REQ-8, REQ-10, REQ-11, REQ-12, AC-4, AC-10, AC-11, AC-15, AC-18, AC-45, AC-46)
-- [ ] T150 Run the real-host demo for DNS: AC-19, AC-22, AC-26, AC-30, AC-32, AC-36, AC-42, AC-47, AC-48 and AC-49 (REQ-12, REQ-14, REQ-16, REQ-22, REQ-23, REQ-26, REQ-31, AC-19, AC-22, AC-26, AC-30, AC-32, AC-36, AC-42, AC-47, AC-48, AC-49)
+- [ ] T150 Run the real-host demo for DNS: AC-19, AC-22, AC-26, AC-30, AC-32, AC-36, AC-47 and AC-48 (REQ-12, REQ-14, REQ-16, REQ-22, REQ-23, REQ-26, AC-19, AC-22, AC-26, AC-30, AC-32, AC-36, AC-47, AC-48)
 
 ## Phase 15: Amendment 2026-11-10: documents and LAN rule foundations
 - [x] T151 Commit the amended `docs/specs/005-httpaas/spec.md`, `docs/specs/005-httpaas/plan.md` and `docs/specs/005-httpaas/tasks.md` as one `docs(httpaas)` commit, staging only those three paths and leaving `stratus-srv/.gitignore` unstaged (REQ-22, REQ-41, REQ-42)
@@ -243,3 +244,15 @@
 - [x] T202 Add to `docs/guide-environment.md` that records hold only addresses inside the subnet of `APP_DNS_IP`, that `APP_DNS_IP` must stay outside `10.10.0.0/16`, and that after upgrading one "Actualizar registros" removes the records stored with internal addresses (REQ-22, REQ-27, AC-58)
 - [x] T203 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/`, fix every failure, then commit the phase staging only its files by path, never `stratus-srv/.gitignore` (REQ-34, REQ-39, AC-55, AC-56)
 - [ ] T204 Run the real-host demo of the amendment: AC-27 (assigned web server skipped), AC-31, AC-37, AC-57, AC-58, AC-59, AC-60, AC-61 and AC-62 (REQ-20, REQ-22, REQ-23, REQ-26, REQ-27, REQ-41, REQ-42, AC-27, AC-31, AC-37, AC-57, AC-58, AC-59, AC-60, AC-61, AC-62)
+
+## Phase 21: Amendment 2026-11-11: remove the DNS server as resolver
+- [ ] T205 Write "TestOpenDropsDNSResolvers" (an existing `dns_resolvers` table is gone after `Open`) in `stratus-srv/internal/repository/db_test.go` and drop the resolvers subtest of TestAC1_WebAndDNSRepositories in `stratus-srv/internal/repository/dns_test.go` (REQ-21, AC-29)
+- [ ] T206 Replace the `dns_resolvers` table with `DROP TABLE IF EXISTS dns_resolvers` in `stratus-srv/internal/repository/db.go` and delete `Resolvers` and `SetResolver` from `stratus-srv/internal/repository/dns.go` (REQ-21)
+- [ ] T207 Rewrite TestAC29_DeleteDNSRejectsWithResolvers as TestAC29_DeleteDNS, drop the resolver of TestAC23_DNSOverview, the resolver steps of the AfterVMDeleted test, TestAC44_DeleteVMClearsResolver, the resolver part of TestAC29_PrepareDeleteDelegatesDNS, the resolver calls of TestAC50_CrossModuleLocks and TestAC51_DNSRecordPolicy, TestAC29_ResolversSetError, and delete `stratus-srv/internal/service/dns_resolvers_test.go` (REQ-21, REQ-34, REQ-35, AC-29, AC-50, AC-51)
+- [ ] T208 Delete `stratus-srv/internal/service/dns_resolvers.go` and `ResolversSetError`; remove the resolver check of `DeleteDNS`, the `Resolver` field of `DNSVMView` and the flag clearing of `AfterVMDeleted` in `stratus-srv/internal/service/` (REQ-21, REQ-23, AC-29)
+- [ ] T209 Write "AC-29 delete DNS without resolver check", "no resolver routes" (`PUT`/`DELETE /api/dns/resolvers/vm1` give 404 or 405) and the overview without `resolver` in `stratus-srv/internal/handler/dns_test.go`, drop TestAC42_ResolverRoutes and the `ResolversSetError` row of `stratus-srv/internal/handler/respond_test.go` (REQ-21, REQ-23, AC-29)
+- [ ] T210 Remove the resolver routes from `stratus-srv/internal/handler/dns.go` and the `ResolversSetError` mapping from `stratus-srv/internal/handler/respond.go` (REQ-21, REQ-23)
+- [ ] T211 Delete `scripts/dns/{set,unset}-resolver.{sh,bats}`, `resolver_program` (section 8) of `scripts/dns/lib/dns-common.sh` with its tests, and `resolver_program_file` and `run_resolver_program` of `scripts/dns/test_helper.bash` (REQ-39, AC-56)
+- [ ] T212 Write "AC-23 no resolver column" (no switch "Usar como resolvedor" in any row) and drop the AC-42 tests in `stratus-ui/src/features/dns/RecordTable.test.tsx`; remove `resolver` from every `DnsVm` fixture (REQ-23, AC-23)
+- [ ] T213 Remove `resolver` from `DnsVm` in `stratus-ui/src/features/dns/types.ts`, `setResolver` from `stratus-ui/src/features/dns/api.ts`, the resolver column and `Switch` from `stratus-ui/src/features/dns/RecordTable.tsx`, and `stratus-ui/src/components/ui/switch.tsx` if nothing else imports it (REQ-23, REQ-40)
+- [ ] T214 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/dns/`, check that `grep -rni resolvedor` finds no code outside `docs/`, then commit the phase staging only its files by path, never `stratus-srv/.gitignore` or `docs/guide-environment.md` (REQ-21, REQ-23, REQ-35)

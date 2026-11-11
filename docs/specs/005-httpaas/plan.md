@@ -2,24 +2,24 @@
 
 ## 1. Metadata
 - Spec: `docs/specs/005-httpaas/spec.md`
-- Updated: 2026-11-10 (amendment: A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
+- Updated: 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
 - Constitution version: 2.1.0
 
 ## 2. Constitution check
-- P1: the backend validates input and the `APP_DNS_*` values, reads the web and DNS state from SQLite, reads IPs through `prepare/list-vms.sh`, picks the script, builds argv and maps exit codes. VM creation, site config, page copy and extraction, static IP, bind9 config, zone writes, resolver config, the IP-in-use probe and systemctl run only in `scripts/web/*.sh`, `scripts/dns/*.sh` and the 001 scripts.
-- P2: 16 new scripts, one per operation (section 6). Each has `set -euo pipefail`, positional arguments, results on stdout, diagnostics on stderr and the exit-code table of section 6. The page archive arrives as a host temp file path argument. Refresh (`--if-changed`), remove record, set and unset resolver, and the unit actions are idempotent. The way to reach a server comes as `--jump <lb>` (004).
+- P1: the backend validates input and the `APP_DNS_*` values, reads the web and DNS state from SQLite, reads IPs through `prepare/list-vms.sh`, picks the script, builds argv and maps exit codes. VM creation, site config, page copy and extraction, static IP, bind9 config, zone writes, the IP-in-use probe and systemctl run only in `scripts/web/*.sh`, `scripts/dns/*.sh` and the 001 scripts.
+- P2: 14 new scripts, one per operation (section 6). Each has `set -euo pipefail`, positional arguments, results on stdout, diagnostics on stderr and the exit-code table of section 6. The page archive arrives as a host temp file path argument. Refresh (`--if-changed`), remove record and the unit actions are idempotent. The way to reach a server comes as `--jump <lb>` (004).
 - P3: the same allowlists (name, memory, CPUs, type, CIDR, gateway, domain, forwarders, record spec, unit) are in `stratus-ui/src/features/{web,dns}/validation.ts`, `stratus-srv/internal/service/{web,dns}_validation.go` and `scripts/{web,dns}/lib/*-common.sh`. Constant remote `sh -c` programs get values as positional arguments. Zone, bind9 options and site files are rendered on the host with `printf` and sent over ssh stdin. The LAN rule of REQ-22 is checked twice: `DNSConfig.OnLAN` plus `lb_servers` in the backend, and `validate_lan_records` / `wait_ips <dns_cidr>` in the scripts.
 - P4: web and DNS servers get key access in the 001 Guest Additions bootstrap through `create-vm.sh`. Afterwards every step is SSH with the backend key; assigned web servers go through `jump` (`vm_exec` and the new `vm_scp` share `VM_ROUTES`).
 - P5: no private key is created. 001 and 002 key flows do not change.
 - P6: every operation returns `{message}` (plus `warning`, `notice` or per-VM `results` where the spec asks) or `{error}`. `operations` rows with module `web` or `dns` keep command, argv, exit code, redacted stderr, result and timestamp. Reads are recorded only on failure.
 - P7: home cards "Servidores web" (`/web`) and "DNS" (`/dns`), one screen each. Forms and dialogs confirm with `OperationResult`.
-- P8: each script runs standalone with bats tests on PATH stubs. Manual rows of section 7 (AC-45 to AC-49 and the inspections) are the before/after demo on the real host.
+- P8: each script runs standalone with bats tests on PATH stubs. Manual rows of section 7 (AC-45 to AC-48 and the inspections) are the before/after demo on the real host.
 - P9: no new Go or npm dependency. Reused: `create-vm.sh`, `delete-vm.sh`, `stop-vm.sh`, `start-vm.sh` logic, `vm-exec.sh`, `check_archive`, `saveArchive`, `ExecRunner`, `operationRunner.runLocked`, `VMLocks` (create lock included), history repository, `Redact`, `targetArgs`, `VmSelector`, `HistoryTable`, `useOperation`, `OperationResult`, `StateWarning`, `ServiceOutputPanel`, `createVmErrors`. New shared code: one bash library per module, one unit-action library used by both, two repositories.
 
 ## 3. Architecture
-- State source: SQLite. `web_servers` holds name and type. `dns_server` holds the single DNS server name. `dns_records` holds VM and IP. `dns_resolvers` holds the VMs whose resolver the app set. The backend decides from SQLite whether a VM is a web server, the DNS server, an LB, an assigned server or a plain VM. Scripts never infer the role.
+- State source: SQLite. `web_servers` holds name and type. `dns_server` holds the single DNS server name. `dns_records` holds VM and IP. The backend decides from SQLite whether a VM is a web server, the DNS server, an LB, an assigned server or a plain VM. Scripts never infer the role.
 - Services and dependencies (no cycles):
-  - `DNSService` (vms, lbs, dns repos): records, resolvers, DNS server create/delete/actions. Exposes hooks used by other services: `AddRecordsFor`, `RefreshVM`, `RefreshAll`, `AfterVMDeleted`.
+  - `DNSService` (vms, lbs, dns repos): records, DNS server create/delete/actions. Exposes hooks used by other services: `AddRecordsFor`, `RefreshVM`, `RefreshAll`, `AfterVMDeleted`.
   - `WebService` (vms, lbs, web repos, `*DNSService`).
   - `HAProxyService` gains `*DNSService` and `dns` repo (assign/remove hooks, DNS server not assignable, delete LB hook).
   - `PrepareService` gains `*WebService`, `*DNSService` and repos (delete delegation, start hooks, package `--role`, selector `kind`).
@@ -72,13 +72,8 @@
     4. Print `<vm> <ip>` per kept record, `removed=<vm>` per removed record, then `reloaded=yes|no`. With removed records, stderr gets `Registros quitados: <vm>, <vm>`, which the history row keeps.
   - `RefreshVM(vm)` passes `wait_vms=<vm>`; `RefreshAll` and the button pass every record VM. `drop_vms` = stored record VMs that are in `lb_servers`, for every refresh. On success `UpdateRecordIPs` stores the printed IPs and `DeleteRecords` deletes the removed rows. The button message names the removed VMs.
   - `DropServerRecord(vm)` (REQ-41, REQ-42): no DNS server or no stored record is a no-op. Else delete the row first, then run `remove-record.sh` with the remaining zone set as its own `remove_record` operation. A lock or config rejection is saved by `recordRejected`.
-  - `AfterVMDeleted(vm)`: delete its `dns_resolvers` row; if it had a record, delete the row first, then run `remove-record.sh` with the remaining set. A failed script returns the REQ-24 warning; the next refresh renders from SQLite and drops the stale line.
-- Resolver (`set-resolver.sh` / `unset-resolver.sh [--jump <lb>] <vm> <dns_ip>`), one remote program:
-  - Detect the client: `command -v dhclient` → write a marked block `# stratus-resolver` + `prepend domain-name-servers <ip>;` into `/etc/dhcp/dhclient.conf`; else `command -v dhcpcd` → write `/usr/lib/dhcpcd/dhcpcd-hooks/99-stratus-resolver` that prepends `nameserver <ip>` to `/etc/resolv.conf` when missing; neither → exit 5 "No se encontró un cliente DHCP compatible".
-  - Apply now: prepend `nameserver <ip>` to `/etc/resolv.conf` if it is not the first nameserver (tmp + mv).
-  - Unset: remove the block or hook, then remove `nameserver <ip>` lines from `/etc/resolv.conf`. Missing pieces are not errors.
-  - Backend: DNS server exists, VM registered and not the DNS server, `targetArgs` adds `--jump`; on success insert or delete the `dns_resolvers` row.
-- Delete DNS server: `DNSService.DeleteDNS` from `/dns` and from `PrepareService.DeleteVM`. `dns_resolvers` non-empty → `ResolversSetError` listing VMs, no script. Else `prepare/delete-vm.sh` as `delete_dns` (module dns); on success delete `dns_records`, `dns_server` and the `vms` row in one transaction.
+  - `AfterVMDeleted(vm)`: if it had a record, delete the row first, then run `remove-record.sh` with the remaining set. A failed script returns the REQ-24 warning; the next refresh renders from SQLite and drops the stale line.
+- Delete DNS server: `DNSService.DeleteDNS` from `/dns` and from `PrepareService.DeleteVM`. `prepare/delete-vm.sh` as `delete_dns` (module dns); on success delete `dns_records`, `dns_server` and the `vms` row in one transaction.
 - Cross-module hooks (each runs after the main operation released its locks; failures become warnings and failed `dns` rows):
   - `PrepareService.StartVM`: DNS server → `RefreshAll`; VM with a record → `RefreshVM`. Warnings join the 004 warning with `\n`.
   - `PrepareService.DeleteVM`: web server → `WebService.DeleteWeb`; DNS server → `DNSService.DeleteDNS`; LB → `HAProxyService.DeleteLB`; plain VM → as before. Every successful path calls `AfterVMDeleted`. Return `ActionResult`.
@@ -86,16 +81,16 @@
   - `HAProxyService.RemoveServer` (REQ-42): after success, `DropServerRecord(vm)` (it only finds a row stored before 2026-11-10; an error gives the REQ-41 warning), then, when a DNS server exists, the notice "<vm> no tiene registro DNS; agréguelo desde DNS". No record is added. `remove-server.sh` deletes the Guest Additions properties `/VirtualBox/GuestInfo/Net/0/V4/IP` and `/Net/1/V4/IP` after `modifyvm` and before `startvm`, as `assign-server.sh` does.
   - The record of a load balancer is never touched by assign or remove (REQ-22, AC-62). `DeleteLB` calls `AfterVMDeleted(lb)`.
   - Package scripts: `PrepareService` adds `--role web-apache|web-nginx|dns` for web servers and the DNS server, and rejects first in Go with `*PackageBlockedError` (REQ-7, REQ-18).
-- Locks (REQ-34): web operations lock the web server; `--jump` operations keep the 004 one-VM lock. Add, remove, refresh and bind actions lock the DNS server. Resolver set and unset lock the target VM. Creation of web and DNS servers uses the shared create lock. Hooks run after the triggering operation unlocked, so they compete normally and a locked DNS server gives the warning.
+- Locks (REQ-34): web operations lock the web server; `--jump` operations keep the 004 one-VM lock. Add, remove, refresh and bind actions lock the DNS server. Creation of web and DNS servers uses the shared create lock. Hooks run after the triggering operation unlocked, so they compete normally and a locked DNS server gives the warning.
 - UI:
   - `/web`: `CreateWebForm`, `WebTable` (one row per web server: name, type, state, IPv4, FQDN, LB; buttons Iniciar, Detener, Reiniciar, Estado, Instalar página, Eliminar), `ServiceOutputPanel` for Estado, `HistoryTable`.
-  - `/dns`: without a server `CreateDnsForm`; with one `DnsServerPanel` (name, state, IPv4, zone, unit buttons, "Actualizar registros", Eliminar), then `RecordTable` (checkbox per VM without record, "Agregar registros", "Quitar registro", `Switch` "Usar como resolvedor"), then `HistoryTable`.
+  - `/dns`: without a server `CreateDnsForm`; with one `DnsServerPanel` (name, state, IPv4, zone, unit buttons, "Actualizar registros", Eliminar), then `RecordTable` (checkbox per VM without record, "Agregar registros", "Quitar registro"), then `HistoryTable`.
   - `VmSelector` labels by `kind`. Start, delete (001), assign and remove (004) show `warning` in an `Alert`; assign and remove also show `notice` in `NoticeAlert` (title "Aviso").
   - Assigned servers (REQ-6, REQ-23): `ListWebServers` returns `fqdn` "" and `Overview` returns `fqdn` "" and `record_ip` "" for a VM with role `server`, also when a row is still stored. `RecordTable` shows no checkbox for role `server`; with `record_ip` "" it has no "Quitar registro".
 - State:
-  - SQLite: `vms`, `load_balancers`, `lb_servers`, `web_servers`, `dns_server`, `dns_records`, `dns_resolvers`, `operations`.
+  - SQLite: `vms`, `load_balancers`, `lb_servers`, `web_servers`, `dns_server`, `dns_records`, `operations`.
   - VirtualBox: the VMs and adapters.
-  - Guests: site config and `/var/www/html`; bind9 config, zone and static IP; resolver block or hook.
+  - Guests: site config and `/var/www/html`; bind9 config, zone and static IP.
   - Backend memory: `VMLocks`.
   - UI: `Web.tsx` and `Dns.tsx` hold their lists, busy flag and history.
 
@@ -115,7 +110,7 @@ Scripts (headers, comments and output in Spanish):
 - create: `scripts/web/lib/web-common.sh` and `.bats` - `fail`, `validate_vm_name`, `validate_memory`, `validate_cpus`, `validate_type`, `validate_base_disk`, `validate_bridge`, `validate_domain`, `type_unit <type>`, `render_site <type> <fqdn>`, `parse_jump`.
 - create: `scripts/web/create-web.sh`, `install-page.sh`, `start-web.sh`, `stop-web.sh`, `restart-web.sh`, `status-web.sh`, each with `.bats`.
 - create: `scripts/dns/lib/dns-common.sh` and `.bats` - `fail`, validators of section 6, `ip_in_use`, `render_options`, `render_zone`, `apply_zone`, `wait_ips`.
-- create: `scripts/dns/create-dns.sh`, `add-records.sh`, `remove-record.sh`, `refresh-records.sh`, `set-resolver.sh`, `unset-resolver.sh`, `start-bind.sh`, `stop-bind.sh`, `restart-bind.sh`, `status-bind.sh`, each with `.bats`.
+- create: `scripts/dns/create-dns.sh`, `add-records.sh`, `remove-record.sh`, `refresh-records.sh`, `start-bind.sh`, `stop-bind.sh`, `restart-bind.sh`, `status-bind.sh`, each with `.bats`.
 - create: `scripts/web/test_helper.bash`, `scripts/dns/test_helper.bash` - load `../prepare/test_helper` and add the helpers of section 6.
 - modify: `scripts/prepare/lib/vm-exec.sh` and `.bats` - `vm_scp <vm> <local> <remote>` (direct or routed).
 - modify: `scripts/services/lib/service-common.sh` and `.bats` - `check_archive <file> <exe> [missing_msg]`; with the third argument a missing entry prints it (code 11 unchanged).
@@ -125,9 +120,9 @@ Scripts (headers, comments and output in Spanish):
 Backend:
 - modify: `stratus-srv/internal/repository/db.go` - add the four tables of section 6.
 - create: `stratus-srv/internal/repository/web_servers.go`, `dns.go` and their `_test.go`.
-- modify: `stratus-srv/internal/service/errors.go` and `errors_test.go` - new sentinels, `PackageBlockedError`, `ResolversSetError`.
+- modify: `stratus-srv/internal/service/errors.go` and `errors_test.go` - new sentinels, `PackageBlockedError`.
 - create: `stratus-srv/internal/service/web_service.go` (`WebConfig`, `WebService`, `History`, exit-code constants, `mapWebError`), `web_validation.go`, `web_servers.go` (`ListWebServers`, `CreateWeb`, `DeleteWeb`), `web_page.go` (`InstallPage`), `web_actions.go` (`WebAction`, `WebStatus`), with `_test.go` for each.
-- create: `stratus-srv/internal/service/dns_service.go` (`DNSConfig`, `DNSService`, `History`, `mapDNSError`), `dns_validation.go` (`ValidateDNSConfig`), `dns_server.go` (`Overview`, `CreateDNS`, `DeleteDNS`, `DNSAction`, `DNSStatus`), `dns_records.go` (`AddRecords`, `RemoveRecord`, `Refresh`, `AddRecordsFor`, `RefreshVM`, `RefreshAll`, `AfterVMDeleted`, `recordSpecs`, `parseRecordRefresh`), `dns_resolvers.go` (`SetResolver`, `UnsetResolver`), with `_test.go` for each.
+- create: `stratus-srv/internal/service/dns_service.go` (`DNSConfig`, `DNSService`, `History`, `mapDNSError`), `dns_validation.go` (`ValidateDNSConfig`), `dns_server.go` (`Overview`, `CreateDNS`, `DeleteDNS`, `DNSAction`, `DNSStatus`), `dns_records.go` (`AddRecords`, `RemoveRecord`, `Refresh`, `AddRecordsFor`, `RefreshVM`, `RefreshAll`, `AfterVMDeleted`, `recordSpecs`, `parseRecordRefresh`), with `_test.go` for each.
 - create: `stratus-srv/internal/service/vm_status.go` (moved from `prepare_vms.go`) - `queryVMStates` returns also the failed `RunResult` so `WebService` can record `list_web`.
 - modify: `stratus-srv/internal/service/prepare_service.go`, `prepare_vms.go`, `prepare_packages.go` and tests - new constructor args, `VMView.Kind`, `ActionResult` (renamed from `StartResult`), delete delegation, start hooks, `--role`.
 - modify: `stratus-srv/internal/service/haproxy_service.go`, `haproxy_servers.go`, `haproxy_lbs.go` and tests - `dns` and `dnsRepo` fields, DNS server not assignable, hooks, `ActionResult` returns.
@@ -191,13 +186,11 @@ CREATE TABLE IF NOT EXISTS dns_records (
   vm TEXT PRIMARY KEY,                   -- un registro A por VM
   ip TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS dns_resolvers (
-  vm TEXT PRIMARY KEY                    -- la app configuró el DNS como resolvedor
-);
+DROP TABLE IF EXISTS dns_resolvers;     -- tabla de US-7, quitada el 2026-11-11
 ```
 History:
 - module `web`: `create_web`, `delete_web`, `install_page`, `start_web`, `stop_web`, `restart_web` always; `status_web` and `list_web` only on failure. VM column = the web server (`-` for `list_web`).
-- module `dns`: `create_dns`, `delete_dns`, `add_records`, `remove_record`, `refresh_records`, `set_resolver`, `unset_resolver`, `start_bind`, `stop_bind`, `restart_bind` always; `status_bind` only on failure. For add, remove and refresh the VM column is the DNS server and the target VMs are in args.
+- module `dns`: `create_dns`, `delete_dns`, `add_records`, `remove_record`, `refresh_records`, `start_bind`, `stop_bind`, `restart_bind` always; `status_bind` only on failure. For add, remove and refresh the VM column is the DNS server and the target VMs are in args.
 
 Record spec (one argv item): `<vm>,<ipv4>`, for example `web-a,192.168.1.40`.
 
@@ -213,7 +206,6 @@ Scripts (argv; env `APP_SSH_KEY_PATH`, and `APP_GUEST_PASSWORD_FILE` for create)
 | `dns/add-records.sh` | `<dns> <domain> <dns_cidr> <record...>` (full zone set after the add) | `Registros aplicados`, `reloaded=yes` |
 | `dns/remove-record.sh` | `<dns> <domain> <dns_cidr> <vm> [record...]` (remaining zone set) | `Registro de <vm> quitado` |
 | `dns/refresh-records.sh` | `<dns> <domain> <dns_cidr> <wait_vms\|-> <drop_vms\|-> [record...]` (`wait_vms`, `drop_vms` = `a,b`; records = every stored row) | `<vm> <ip>` per kept record, `removed=<vm>` per removed record, `reloaded=yes\|no`; stderr `Registros quitados: a, b` |
-| `dns/set-resolver.sh`, `dns/unset-resolver.sh` | `[--jump <lb>] <vm> <dns_ip>` | message |
 | `dns/{start,restart}-bind.sh`, `dns/stop-bind.sh`, `dns/status-bind.sh` | `<dns>` | as the web unit scripts, unit `named` |
 | `prepare/{install,remove}-package.sh` | `[--jump <lb>] [--frontend <port>] [--role <role>] <vm> <package>` | unchanged |
 
@@ -340,8 +332,6 @@ func (r *DNSRepository) InsertRecords(ctx context.Context, recs []DNSRecord) err
 func (r *DNSRepository) DeleteRecord(ctx context.Context, vm string) error
 func (r *DNSRepository) DeleteRecords(ctx context.Context, vms []string) error // one transaction; empty list is a no-op
 func (r *DNSRepository) UpdateRecordIPs(ctx context.Context, recs []DNSRecord) error
-func (r *DNSRepository) Resolvers(ctx context.Context) ([]string, error)
-func (r *DNSRepository) SetResolver(ctx context.Context, vm string, on bool) error
 ```
 
 Go (package `service`):
@@ -360,7 +350,6 @@ var (
   ErrPackageBlocked      = errors.New("paquete protegido")
 )
 type PackageBlockedError struct { Message string }   // Unwrap() = ErrPackageBlocked; 409
-type ResolversSetError struct { VMs []string }       // "Quite primero el resolvedor DNS de las VMs: vm1, vm2"; 409
 func ValidateWebType(t string) error                 // "Seleccione el tipo de servidor web"
 func ValidateDNSConfig(c DNSConfig) error            // ErrDNSConfigIncomplete
 type ActionResult struct { Message string `json:"message"`; Notice string `json:"notice,omitempty"`; Warning string `json:"warning,omitempty"` } // renamed StartResult; Notice added 2026-11-10
@@ -391,13 +380,13 @@ func NewDNSService(cfg DNSConfig, runner ScriptRunner, vms *repository.VMReposit
   locks *VMLocks, logger *log.Logger) *DNSService
 type DNSOverview struct {
   Server *DNSServerView `json:"server"`  // nil when none: {name,state,ip,zone}
-  VMs    []DNSVMView    `json:"vms"`     // every VM except the DNS server: {name,kind,role,state,ip,fqdn,record_ip,resolver}
+  VMs    []DNSVMView    `json:"vms"`     // every VM except the DNS server: {name,kind,role,state,ip,fqdn,record_ip}
   ListError string      `json:"list_error"`
 }
 type RecordResult struct { VM string `json:"vm"`; OK bool `json:"ok"`; Message string `json:"message"` }
 func (s *DNSService) Overview(ctx context.Context) (DNSOverview, error)
 func (s *DNSService) CreateDNS(ctx context.Context, in CreateVMInput) (string, error) // message names skipped web servers
-func (s *DNSService) DeleteDNS(ctx context.Context) (string, error)                    // ResolversSetError; delete_dns
+func (s *DNSService) DeleteDNS(ctx context.Context) (string, error)                    // delete_dns
 func (s *DNSService) DNSAction(ctx context.Context, action string) (ServiceResult, error)
 func (s *DNSService) DNSStatus(ctx context.Context) (string, error)
 func (s *DNSService) AddRecords(ctx context.Context, vms []string) (string, []RecordResult, error) // error only when none added
@@ -407,8 +396,6 @@ func (s *DNSService) Refresh(ctx context.Context) (string, error)               
 func (s *DNSService) DropServerRecord(ctx context.Context, vm string) (removed bool, err error) // hook of assign and remove; row first, then remove_record
 func (s *DNSService) zoneRecords(ctx context.Context) ([]repository.DNSRecord, error)   // stored records that pass the LAN rule
 func parseRecordRefresh(stdout []byte) (kept []repository.DNSRecord, removed []string, reloaded bool)
-func (s *DNSService) SetResolver(ctx context.Context, vm string) (string, error)
-func (s *DNSService) UnsetResolver(ctx context.Context, vm string) (string, error)
 func (s *DNSService) AddRecordsFor(ctx context.Context, vm, ip string) error            // hook: no-op without DNS server
 func (s *DNSService) RefreshVM(ctx context.Context, vm string) error                    // hook: no-op without record
 func (s *DNSService) RefreshAll(ctx context.Context) error
@@ -429,7 +416,7 @@ func (s *HAProxyService) DeleteLB(ctx context.Context, lb string) (ActionResult,
 ```
 
 Go (package `handler`): `RegisterWeb(mux, svc)`, `RegisterDNS(mux, svc)`. Status codes:
-- `ErrDNSExists`, `ErrNoDNSServer`, `ErrDNSOff`, `ErrRecordExists`, `*ResolversSetError`, `*PackageBlockedError`, `ErrDNSIPInUse`: 409.
+- `ErrDNSExists`, `ErrNoDNSServer`, `ErrDNSOff`, `ErrRecordExists`, `*PackageBlockedError`, `ErrDNSIPInUse`: 409.
 - `ErrDNSConfigIncomplete`, `ErrIndexMissing`, `ErrWebBaseDiskMissing`, `ErrDNSBaseDiskMissing`: 400 or 409 as the 001 disk messages (409).
 - `ErrZoneInvalid`: 500 with its text.
 
@@ -451,7 +438,6 @@ HTTP API (JSON `snake_case`):
 | `POST /api/dns/records` | `{vms:[...]}` | 200 `{message, results:[{vm,ok,message}]}`; none added → 409 `{error}` |
 | `DELETE /api/dns/records/{vm}` | - | 200 `{message}` |
 | `POST /api/dns/records/refresh` | - | 200 `{message}` (names the removed VMs) |
-| `PUT /api/dns/resolvers/{vm}` / `DELETE /api/dns/resolvers/{vm}` | - | 200 `{message}` |
 | `GET /api/dns/history` | - | `{"operations":[...]}` |
 | `DELETE /api/prepare/vms/{name}` (changed) | - | 200 `{message, warning?}` |
 | `POST /api/haproxy/lbs/{lb}/servers`, `DELETE .../servers/{vm}` (changed) | as before | `{message, notice?, warning?}` |
@@ -473,10 +459,10 @@ createWebErrors(input): Record<string,string>  // createVmErrors + type required
 validatePageFile(file): string | null          // ".tar.gz" and <= 200 MB, 003 texts
 // features/dns/types.ts
 interface DnsServer { name: string; state: VmState; ip: string; zone: string }
-interface DnsVm { name; kind; role; state; ip; fqdn; record_ip; resolver: boolean }
+interface DnsVm { name; kind; role; state; ip; fqdn; record_ip }
 // features/dns/api.ts
 getDnsOverview(); createDns(input); deleteDns(); dnsAction(action); dnsStatus(); addRecords(vms);
-removeRecord(vm); refreshRecords(); setResolver(vm, on); getDnsHistory()
+removeRecord(vm); refreshRecords(); getDnsHistory()
 // components
 CreateWebForm({ busy; onDone })
 WebTable({ servers; busy; onDone })               // per row: UnitButtons, Instalar página, Eliminar (confirmation names the VM)
@@ -484,7 +470,7 @@ InstallPageDialog({ vm; onDone })                 // file input + confirmation "
 UnitButtons({ onAction(action); onStatus() })     // Iniciar, Detener, Reiniciar, Estado; StateWarning hint "revise Estado"
 CreateDnsForm({ busy; onDone })
 DnsServerPanel({ server; busy; onDone })          // UnitButtons, Actualizar registros, Eliminar
-RecordTable({ vms; busy; onDone })                // checkboxes (none for role "server"), Agregar registros, Quitar registro, resolver Switch
+RecordTable({ vms; busy; onDone })                // checkboxes (none for role "server"), Agregar registros, Quitar registro
 // amendment 2026-11-10
 interface ActionResult { message: string; notice?: string; warning?: string }   // features/prepare/api.ts
 NoticeAlert({ notice })                           // components/NoticeAlert.tsx; renders nothing when empty; title "Aviso"
@@ -563,14 +549,14 @@ NoticeAlert({ notice })                           // components/NoticeAlert.tsx;
 | AC-24 create-dns valida la configuración | unit | `scripts/dns/create-dns.bats` | US-4 / REQ-15 / AC-24 | given each invalid value - then exit 2, "Configuración de DNS incompleta", empty calls.log |
 | AC-25 create-dns sale con 13 si la IP responde | unit | `scripts/dns/create-dns.bats` | US-4 / REQ-15 / AC-25 | given ARPING=reply PING=none (blocks ICMP) - then exit 13, the text, no create-vm; given ARPING=none PING=reply - 13; given ARPING=missing - exit 4 |
 | TestAC25_IPInUseMapsError | unit | `stratus-srv/internal/service/dns_server_test.go` | US-4 / REQ-15 / AC-25 | given exit 13 - then ErrDNSIPInUse, no vms row |
-| AC-26 render_zone y render_options | unit | `scripts/dns/lib/dns-common.bats` | US-4, US-7 / REQ-16, REQ-22 / AC-26, AC-32 | given dns1, stratus.lan, 192.168.1.53 and `vm1,192.168.1.40` - then `$TTL 60`, `@ IN NS dns1.stratus.lan.`, `dns1 IN A 192.168.1.53`, `vm1 IN A 192.168.1.40`; options have `acl stratus_clients { 192.168.1.0/24; 10.10.0.0/16; localhost; }`, `forwarders { 1.1.1.1; 8.8.8.8; }` |
-| AC-26 NS, A and forwarding | manual | real host demo | US-4, US-7 / REQ-16 / AC-26 | `dig NS`, `dig dns1.stratus.lan`, `dig debian.org` from a LAN client |
+| AC-26 render_zone y render_options | unit | `scripts/dns/lib/dns-common.bats` | US-4 / REQ-16, REQ-22 / AC-26, AC-32 | given dns1, stratus.lan, 192.168.1.53 and `vm1,192.168.1.40` - then `$TTL 60`, `@ IN NS dns1.stratus.lan.`, `dns1 IN A 192.168.1.53`, `vm1 IN A 192.168.1.40`; options have `acl stratus_clients { 192.168.1.0/24; 10.10.0.0/16; localhost; }`, `forwarders { 1.1.1.1; 8.8.8.8; }` |
+| AC-26 NS, A and forwarding | manual | real host demo | US-4 / REQ-16 / AC-26 | `dig NS`, `dig dns1.stratus.lan`, `dig debian.org` from a LAN client |
 | AC-27 create-dns registra los servidores web iniciales | unit | `scripts/dns/create-dns.bats` | US-4, US-5 / REQ-20 / AC-27 | given records `web-a,...` and `web-b,...` - then the zone stdin has both lines |
 | TestAC27_CreateDNSSkipsWebWithoutLANIP (replaces TestAC27_CreateDNSSkipsWebWithoutIP) | unit | `stratus-srv/internal/service/dns_server_test.go` | US-4, US-5 / REQ-20 / AC-27 | given web-a and web-b with LAN IPs, web-c without IP, web-d running and assigned to lb1 (IP 10.10.1.11), lb1 running - then argv ends with the specs of web-a and web-b, two dns_records rows, the message names web-c and web-d, no row for web-d or lb1 |
 | AC-27 create-dns rechaza un registro inicial fuera de la LAN | unit | `scripts/dns/create-dns.bats` | US-4, US-5 / REQ-20, REQ-22 / AC-27 | given the record `web-d,10.10.1.11` and CIDR `192.168.1.53/24` - then exit 2 and empty calls.log |
 | TestAC28_DNSServerRules | unit | `stratus-srv/internal/service/prepare_packages_test.go`, `haproxy_servers_test.go` | US-8 / REQ-18, REQ-19 / AC-28 | RemovePackage bind9 on dns1 - PackageBlockedError "No se puede eliminar bind9: el servidor DNS lo usa"; InstallPackage ufw argv `[--role dns dns1 ufw]`; AssignServer(lb1, dns1) - ErrVMNotAssignable, no runner call |
 | AC-28 role dns en los scripts de paquetes | unit | `scripts/prepare/install-package.bats`, `remove-package.bats` | US-8 / REQ-18 / AC-28 | install ufw - `ufw allow 22/tcp`, `53/tcp`, `53/udp`; remove bind9 - exit 2 and the text |
-| TestAC29_DeleteDNSRejectsWithResolvers | unit | `stratus-srv/internal/service/dns_server_test.go` | US-4, US-7 / REQ-21, REQ-33 / AC-29 | given vm1 resolver set (powered off) - then ResolversSetError "Quite primero el resolvedor DNS de las VMs: vm1", no runner call; given none - `prepare/delete-vm.sh [dns1]` as `delete_dns`, no dns rows remain |
+| TestAC29_DeleteDNS | unit | `stratus-srv/internal/service/dns_server_test.go` | US-4 / REQ-21 / AC-29 | given dns1 with records - `prepare/delete-vm.sh [dns1]` as `delete_dns`, no dns rows remain |
 | TestAC29_PrepareDeleteDelegatesDNS | unit | `stratus-srv/internal/service/prepare_vms_test.go` | US-4 / REQ-21 / AC-29 | given dns1 - when DeleteVM runs - then the `delete_dns` row in module dns |
 | AC-29 after delete the form returns | unit | `stratus-ui/src/routes/Dns.test.tsx` | US-4 / REQ-21 / AC-29 | given delete ok and overview without server - then "Crear servidor DNS" shows and no records |
 | TestAC30_AddRecordsPerVMResult | unit | `stratus-srv/internal/service/dns_records_test.go` | US-5 / REQ-22, REQ-23 / AC-30 | given vm1 and lb1 running, vm2 off - then one `dns/add-records.sh` with `vm1,<ip>` and `lb1,<bridged ip>`, results vm1 ok, lb1 ok, vm2 "La VM no tiene dirección IP; verifique que esté encendida", no vm2 row; vm1 again - "La VM ya tiene un registro DNS"; all rejected - 409 |
@@ -604,20 +590,11 @@ NoticeAlert({ notice })                           // components/NoticeAlert.tsx;
 | AC-40 refresh-records espera en paralelo con un solo límite | unit | `scripts/dns/refresh-records.bats` | US-6 / REQ-27 / AC-40 | given 10 running VMs, 3 never reporting - then each poll log has at most 60 `sleep 2` and the run ends at the shared budget; the 3 keep their IPs |
 | AC-41 apply_zone conserva la zona si falla la revisión | unit | `scripts/dns/lib/dns-common.bats` | US-5, US-6 / REQ-28 / AC-41 | given ZONE_CHECK=fail - exit 10, check output on stderr, `rm -f` of `.new`, no `mv`, no `rndc`; given RNDC=fail - `.bak` restored, second reload, exit 11 |
 | TestAC41_ZoneInvalidMapsError | unit | `stratus-srv/internal/service/dns_records_test.go` | US-5, US-6 / REQ-28 / AC-41 | given exit 10 on add, remove and refresh - then ErrZoneInvalid, no SQLite change, stderr in history |
-| AC-42 set-resolver con dhclient y con dhcpcd | unit | `scripts/dns/set-resolver.bats` | US-7 / REQ-31 / AC-42 | given DHCP_CLIENT=dhclient - the remote program writes `prepend domain-name-servers 192.168.1.53;` and prepends `nameserver 192.168.1.53`; dhcpcd - the hook file; none - exit 5 |
-| AC-42 unset-resolver quita la configuración | unit | `scripts/dns/unset-resolver.bats` | US-7 / REQ-31 / AC-42 | then the block or hook is removed and `nameserver 192.168.1.53` lines are deleted; a second run succeeds |
-| TestAC42_SetUnsetResolverFlag | unit | `stratus-srv/internal/service/dns_resolvers_test.go` | US-7 / REQ-31, REQ-33 / AC-42 | Set - argv `[vm1 192.168.1.53]`, row `set_resolver`, flag on; Unset - `unset_resolver`, flag off |
-| AC-42 resolver toggle | unit | `stratus-ui/src/features/dns/RecordTable.test.tsx` | US-7 / REQ-31 / AC-42 | when the Switch turns on - PUT `/api/dns/resolvers/vm1`; off - DELETE |
-| AC-42 resolv.conf, getent, apt and reboot | manual | real host demo | US-7 / REQ-31 / AC-42 | `cat /etc/resolv.conf`, `getent hosts web-a.stratus.lan`, `apt update`, reboot |
-| TestAC43_ResolverOnServerAndOffVM | unit | `stratus-srv/internal/service/dns_resolvers_test.go` | US-7 / REQ-32 / AC-43 | given web-a in lb1 - argv starts `--jump lb1 web-a`; given exit 7 - ErrVMNoIP text |
-| AC-43 set-resolver con VM apagada no llama a ssh | unit | `scripts/dns/set-resolver.bats` | US-7 / REQ-32 / AC-43 | given vm1 poweroff - exit 7, no ssh |
-| TestAC44_DeleteVMClearsResolver | unit | `stratus-srv/internal/service/prepare_vms_test.go` | US-7 / REQ-33 / AC-44 | given vm1 with the flag - DeleteVM ok - then no dns_resolvers row, and DeleteDNS proceeds |
 | AC-45 Nginx and Apache pages before/after | manual | real host demo | US-1, US-2 / REQ-2, REQ-4, REQ-10 / AC-45 | `curl` default page, install, `curl` new page |
 | AC-46 both pages through lb1 | manual | real host demo | US-2, US-8 / REQ-6, REQ-11 / AC-46 | assign web-a, web-b; repeated `curl` on the frontend |
 | AC-47 dig NXDOMAIN then IPv4 | manual | real host demo | US-4, US-5 / REQ-13, REQ-23 / AC-47 | `dig @<ip> vm1.stratus.lan A` before/after |
 | AC-48 new address after restart | manual | real host demo | US-6 / REQ-26 / AC-48 | restart VM, `dig` |
-| AC-49 getent fails then succeeds | manual | real host demo | US-7 / REQ-31 / AC-49 | `getent hosts lb1.stratus.lan` before/after set |
-| TestAC50_CrossModuleLocks | integration | `stratus-srv/internal/service/dns_service_test.go` | US-1..US-8 / REQ-34 / AC-50 | given an install_page blocked on web-a - WebAction, InstallPackage and SetResolver on web-a give ErrOperationInProgress; given add_records blocked on dns1 - DNSAction gives ErrOperationInProgress |
+| TestAC50_CrossModuleLocks | integration | `stratus-srv/internal/service/dns_service_test.go` | US-1..US-8 / REQ-34 / AC-50 | given an install_page blocked on web-a - WebAction and InstallPackage on web-a give ErrOperationInProgress; given add_records blocked on dns1 - DNSAction gives ErrOperationInProgress |
 | TestAC51_RecordPolicy | unit | `stratus-srv/internal/service/web_service_test.go`, `dns_service_test.go` | US-9 / REQ-35 / AC-51 | 20 ok WebStatus + 1 failed - 1 row; each always-recorded operation adds one row in its module |
 | TestAC52_AddRecordsHistoryRow | unit | `stratus-srv/internal/service/dns_records_test.go` | US-9 / REQ-35 / AC-52 | given add of vm1 and lb1 - row VM `dns1`, args contain `vm1,` and `lb1,` |
 | TestAC53_HistoryLimit | unit | `stratus-srv/internal/service/web_service_test.go`, `dns_service_test.go` | US-9 / REQ-36 / AC-53 | 55 rows - 50 newest first |
@@ -626,7 +603,7 @@ NoticeAlert({ notice })                           // components/NoticeAlert.tsx;
 | AC-55 <script> sale con 2 ante argumentos inválidos | unit | `scripts/web/*.bats`, `scripts/dns/*.bats` | US-1..US-8 / REQ-34, REQ-39 / AC-55 | given a missing argument, type `iis`, name `Web1`, domain `Stratus_Lan`, unit `sshd`, bad record, `--jump Lb1` - exit 2 and empty calls.log, for each of the 16 scripts |
 | AC-55 --role inválido sale con 2 | unit | `scripts/prepare/install-package.bats` | US-8 / REQ-7 / AC-55 | given `--role iis` - exit 2, empty calls.log |
 | AC-56 <script> tiene la estructura exigida | unit | `scripts/web/*.bats`, `scripts/dns/*.bats` | US-1..US-8 / REQ-39 / AC-56 | `assert_script_structure` passes for each of the 16 scripts and the 3 libraries |
-| TestAC1_WebAndDNSRepositories | unit | `stratus-srv/internal/repository/web_servers_test.go`, `dns_test.go` | US-1, US-4, US-5, US-7 / REQ-2, REQ-13, REQ-22, REQ-33 / AC-1, AC-22, AC-30, AC-42 | insert, get, list, delete; single dns_server row; records ordered; UpdateRecordIPs; resolvers; DeleteServer transaction |
+| TestAC1_WebAndDNSRepositories | unit | `stratus-srv/internal/repository/web_servers_test.go`, `dns_test.go` | US-1, US-4, US-5 / REQ-2, REQ-13, REQ-22 / AC-1, AC-22, AC-30 | insert, get, list, delete; single dns_server row; records ordered; UpdateRecordIPs; DeleteServer transaction |
 | TestAC24_ConfigOptionalDNS | unit | `stratus-srv/cmd/server/config_test.go` | US-4 / REQ-15 / AC-24 | the server config loads without the new variables; `APP_DNS_DOMAIN` defaults to `stratus.lan` |
 | TestAC8_ListWebServersOnly (new case) | unit | `stratus-srv/internal/service/web_servers_test.go` | US-1, US-8 / REQ-6 / AC-8 | given web-b assigned to lb1 with a stored record - then fqdn "" |
 | AC-8 web table shows - as FQDN of an assigned server | unit | `stratus-ui/src/features/web/WebTable.test.tsx` | US-1 / REQ-6 / AC-8 | given a server with fqdn "" and lb `lb1` - then FQDN cell "-" |
@@ -682,7 +659,7 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 | REQ-18 | `--role dns`, `PackageBlockedError` | AC-28 |
 | REQ-19 | `HAProxyService.AssignServer` DNS check | AC-28 |
 | REQ-20 | `CreateDNS` initial records (`webRecords`: unassigned, `OnLAN`), `create-dns.sh` records with `validate_lan_records` | AC-27 |
-| REQ-21 | `DeleteDNS`, `ResolversSetError`, `PrepareService.DeleteVM` delegation | AC-29 |
+| REQ-21 | `DeleteDNS`, `PrepareService.DeleteVM` delegation | AC-29 |
 | REQ-22 | `recordSpecs`, `render_zone`, IP from `list-vms.sh`, `DNSConfig.OnLAN`, `zoneRecords`, `ip_in_subnet`, `validate_lan_records` | AC-5, AC-26, AC-31, AC-32, AC-58, AC-59, AC-62 |
 | REQ-23 | `AddRecords` (`recordCandidate`, `ServerRecordError`, `ErrVMNotOnLAN`), `add-records.sh`, `Overview`, `RecordTable` | AC-30, AC-31, AC-47, AC-58, AC-59 |
 | REQ-24 | `RemoveRecord`, `remove-record.sh`, `AfterVMDeleted`, delete warnings | AC-33, AC-34 |
@@ -694,9 +671,6 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 | REQ-28 | `apply_zone`, `ErrZoneInvalid` | AC-41 |
 | REQ-29 | full render from `dns_records` in every record script | AC-30, AC-33 |
 | REQ-30 | `DeleteWeb` → `AfterVMDeleted` | AC-10 |
-| REQ-31 | `set-resolver.sh`, `unset-resolver.sh`, `RecordTable` switch | AC-42, AC-49 |
-| REQ-32 | `targetArgs`, `vm_ip` 7 and 12 | AC-43 |
-| REQ-33 | `dns_resolvers`, `SetResolver`, `UnsetResolver`, `AfterVMDeleted` | AC-29, AC-42, AC-44 |
 | REQ-34 | one script per operation, `ExecRunner` 15 min, `runLocked` locks, hooks after unlock (also `DropServerRecord` and the refresh after a failed assign) | AC-37, AC-50, AC-55 |
 | REQ-35 | `operationRunner` record policy, modules `web` and `dns`, `list_web` row | AC-8, AC-20, AC-51, AC-52 |
 | REQ-36 | `WebService.History`, `DNSService.History`, `HistoryTable` | AC-53 |
@@ -708,7 +682,6 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 ## 9. Decisions and risks
 - State in new SQLite tables (user's choice). Rejected: a `kind` column on `vms`, which needs a migration the schema does not have.
 - The zone is rendered whole from `dns_records` and applied with `named-checkzone`, `.bak` and `rndc reload` (user's choice). Rejected: `nsupdate`, which makes bind own the zone (`.jnl`) and needs a diff to prove REQ-29.
-- Resolver per DHCP client: dhclient `prepend`, dhcpcd hook (user's choice). Rejected: a systemd path watcher (window without the resolver) and a static resolv.conf (ignores later DHCP nameservers).
 - Package protections through `--role` (user's choice). Rejected: generic `--protect/--conflict/--allow` options.
 - IPs for records come from `list-vms.sh` in the backend for add and create (the VM must already report one); only refresh waits, inside the script, because waiting polls VirtualBox (P1).
 - On VM delete the record row is removed before the zone script runs, so a failed removal is fixed by the next refresh, as the REQ-24 warning says.
@@ -719,8 +692,7 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 - `named` is the Debian 13 unit name for bind9 (`bind9` is an alias).
 - Risk: `create-dns.sh` runs `create-vm.sh` (worst case 14 min) plus a power cycle (up to 4 min), which can pass the 15-minute timeout. Mitigation: SIGTERM runs the trap (process group); the demo measures it; the static-IP wait is bounded at 180 s.
 - Risk: `arping` needs `CAP_NET_RAW`. Mitigation: `docs/guide-environment.md` documents `setcap cap_net_raw+ep $(command -v arping)`; a missing `arping` exits 4 with a clear message.
-- Risk: the dhcpcd hooks directory differs between packages. Mitigation: the script uses `/usr/lib/dhcpcd/dhcpcd-hooks` and checks it exists, else exits 5; the base image guide states the expected client; AC-42 demo checks after reboot.
-- Risk: bats stubs check commands, not effects, for bind9, networking and resolv.conf. Mitigation: the manual rows of section 7.
+- Risk: bats stubs check commands, not effects, for bind9 and networking. Mitigation: the manual rows of section 7.
 - Risk: the 004 home test expects four cards. Mitigation: it becomes the AC-54 test in the same change that adds the cards.
 
 Amendment 2026-11-10:
@@ -735,3 +707,10 @@ Amendment 2026-11-10:
 - Risk: a running VM that only reports a non-LAN address keeps its poll open for the whole 120 s window. Mitigation: the window is shared and bounded (AC-40); the stored LAN IP is kept (AC-59).
 - Risk: with `APP_DNS_IP` inside `10.10.0.0/16` the subnet check alone cannot tell an internal address. Mitigation: the backend role check and `drop_vms` still apply; `docs/guide-environment.md` tells the team to keep `APP_DNS_IP` outside `10.10.0.0/16`.
 - Risk: AC-37, AC-57, AC-58, AC-61 and AC-62 depend on VirtualBox, DHCP and bind9. Mitigation: the manual rows of section 7.
+
+Amendment 2026-11-11:
+- The resolver feature (US-7) is removed whole: `set-resolver.sh`, `unset-resolver.sh` and their bats, `resolver_program` and its test helpers, `dns_resolvers.go`, the `dns_resolvers` repository methods, `ResolversSetError`, the `PUT`/`DELETE /api/dns/resolvers/{vm}` routes, the `resolver` field of `DNSVMView` and `DnsVm`, and the `Switch` of `RecordTable`. Rejected: hiding the switch and keeping the backend (dead code that the spec no longer requires).
+- The schema runs `DROP TABLE IF EXISTS dns_resolvers`, so an existing `stratus.db` loses the flags without a manual step. Rejected: leaving the table (an orphan the code never reads).
+- `DeleteDNS` no longer checks resolvers: it runs `prepare/delete-vm.sh` directly (REQ-21, AC-29).
+- The shadcn `switch.tsx` is deleted when no other component imports it.
+- Risk: a VM whose resolver was set before the upgrade keeps `APP_DNS_IP` in its resolver list. Mitigation: bind9 keeps answering and forwarding, and the DHCP nameservers follow it; after the DNS server is deleted the VM falls back to them. Undoing the guest configuration by hand is out of scope.

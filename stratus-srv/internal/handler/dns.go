@@ -1,0 +1,118 @@
+package handler
+
+import (
+	"net/http"
+
+	"stratus-srv/internal/service"
+)
+
+// RegisterDNS registra las rutas del módulo "DNS" bajo /api/dns.
+func RegisterDNS(mux *http.ServeMux, svc *service.DNSService) {
+	mux.HandleFunc("GET /api/dns", func(w http.ResponseWriter, r *http.Request) {
+		view, err := svc.Overview(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	})
+
+	mux.HandleFunc("POST /api/dns/server", func(w http.ResponseWriter, r *http.Request) {
+		var in service.CreateVMInput
+		if !decodeJSON(w, r, &in) {
+			return
+		}
+		msg, err := svc.CreateDNS(r.Context(), in)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, messageBody{msg})
+	})
+
+	mux.HandleFunc("DELETE /api/dns/server", func(w http.ResponseWriter, r *http.Request) {
+		msg, err := svc.DeleteDNS(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
+	// Una ruta por acción de systemctl sobre bind9 (REQ-12): start, stop y restart.
+	for _, action := range []string{"start", "stop", "restart"} {
+		mux.HandleFunc("POST /api/dns/server/"+action, func(w http.ResponseWriter, r *http.Request) {
+			res, err := svc.DNSAction(r.Context(), action)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, res)
+		})
+	}
+
+	mux.HandleFunc("GET /api/dns/server/status", func(w http.ResponseWriter, r *http.Request) {
+		output, err := svc.DNSStatus(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Output string `json:"output"`
+		}{output})
+	})
+
+	// Registros que sirve el servidor DNS, leídos de su archivo de zona (REQ-46).
+	mux.HandleFunc("GET /api/dns/zone", func(w http.ResponseWriter, r *http.Request) {
+		records, err := svc.Zone(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Records []service.ZoneRecord `json:"records"`
+		}{records})
+	})
+
+	// Agrega los registros A de las VMs elegidas (REQ-23): 200 con el resultado de cada una o, si no
+	// se agregó ninguna, el error de la primera rechazada.
+	mux.HandleFunc("POST /api/dns/records", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			VMs []string `json:"vms"`
+		}
+		if !decodeJSON(w, r, &in) {
+			return
+		}
+		msg, results, err := svc.AddRecords(r.Context(), in.VMs)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Message string                 `json:"message"`
+			Results []service.RecordResult `json:"results"`
+		}{msg, results})
+	})
+
+	// Actualiza las IPs de todos los registros y recarga la zona solo si cambió (REQ-27).
+	mux.HandleFunc("POST /api/dns/records/refresh", func(w http.ResponseWriter, r *http.Request) {
+		msg, err := svc.Refresh(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
+	mux.HandleFunc("DELETE /api/dns/records/{vm}", func(w http.ResponseWriter, r *http.Request) {
+		msg, err := svc.RemoveRecord(r.Context(), r.PathValue("vm"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, messageBody{msg})
+	})
+
+	// Últimas 50 operaciones del módulo, la más reciente primero (REQ-36).
+	mux.HandleFunc("GET /api/dns/history", historyHandler(svc.History))
+}

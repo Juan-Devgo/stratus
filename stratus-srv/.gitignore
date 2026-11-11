@@ -3,3 +3,4 @@ bin/
 /server
 stratus.db
 *.known_hosts
+./guest-secrets/

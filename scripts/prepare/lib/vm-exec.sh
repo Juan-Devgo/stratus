@@ -13,12 +13,15 @@
 #   vm_nic_ip <vm_name> <nic>
 #   vm_ip <vm_name>
 #   vm_exec <vm_name> <comando> [argumentos...]
+#   vm_scp <vm_name> <local> <remoto>
 #
 # Argumentos:
 #   vm_name  nombre de la VM registrada en VirtualBox
 #   lb_name  nombre del balanceador por el que se llega a la VM
 #   nic      número del adaptador de VirtualBox, 1 a 4
 #   comando  programa a ejecutar en la VM; cada argumento va como elemento separado
+#   local    archivo del host que se copia (005)
+#   remoto   ruta de destino en la VM
 #
 # Variables de entorno:
 #   APP_SSH_KEY_PATH  llave privada del backend; las llaves de host fijadas van en
@@ -30,12 +33,13 @@
 # Salida:
 #   vm_nic_ip, vm_ip  stdout: la IPv4
 #   vm_exec           stdout: la salida del comando remoto
+#   vm_scp            nada en stdout
 #   stderr            diagnósticos
 #
 # Códigos de salida (valor de retorno de las funciones):
 #   0   éxito
 #   2   argumentos inválidos o APP_SSH_KEY_PATH faltante
-#   4   fallo de comunicación con la VM (SSH terminó con 255)
+#   4   fallo de comunicación con la VM (SSH terminó con 255, o scp falló)
 #   5   el comando remoto terminó con código distinto de cero
 #   7   la VM no tiene dirección IP (apagada, sin Guest Additions o sin IPv4)
 #   12  la VM tiene ruta y su balanceador está apagado o sin IPv4 en puente
@@ -47,6 +51,8 @@
 # Rutas registradas: vm -> balanceador. "-g" para que exista aunque el archivo se cargue dentro de
 # una función. Es global del proceso: no se hereda a los scripts hijos, que reciben "--jump".
 declare -gA VM_ROUTES
+# Opciones de salto de la última llamada a _proxy_opts.
+declare -ga _VM_PROXY
 
 # Mensaje de VM sin IP, el mismo de 001 REQ-29.
 _NO_IP_MSG="La VM no tiene dirección IP; verifique que esté encendida"
@@ -169,30 +175,40 @@ vm_ip() {
 # 4.6 Reenviar stdout y stderr del comando remoto sin modificarlos; si terminó con código distinto
 #     de cero, devolver 5; si no, 0.
 
+# _require_key: devuelve 2 si APP_SSH_KEY_PATH falta o no existe.
+_require_key() {
+  if [[ -z "${APP_SSH_KEY_PATH:-}" || ! -e "$APP_SSH_KEY_PATH" ]]; then
+    echo "No se encontró la llave del backend (APP_SSH_KEY_PATH)" >&2
+    return 2
+  fi
+}
+
+# _proxy_opts <vm_name>: deja en _VM_PROXY las opciones "-o ProxyCommand=..." de una VM con ruta
+# (paso 4.4), o vacío si es directa. Devuelve 12 si el balanceador está apagado.
+_proxy_opts() {
+  _VM_PROXY=()
+  [[ -n "${VM_ROUTES[$1]:-}" ]] || return 0
+  local lb="${VM_ROUTES[$1]}" lb_ip key
+  lb_ip="$(_lb_ip "$lb")" || return $?
+  # El comando del salto lo ejecuta un shell local: la ruta de la llave va citada.
+  key="$(printf '%q' "$APP_SSH_KEY_PATH")"
+  _VM_PROXY=(-o "ProxyCommand=ssh -i $key -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$key.known_hosts -o HostKeyAlias=$lb -W %h:%p jump@$lb_ip")
+}
+
 vm_exec() {
   if (($# < 2)); then
     echo "Uso: vm_exec <vm_name> <comando> [argumentos...]" >&2
     return 2
   fi
-  if [[ -z "${APP_SSH_KEY_PATH:-}" || ! -e "$APP_SSH_KEY_PATH" ]]; then
-    echo "No se encontró la llave del backend (APP_SSH_KEY_PATH)" >&2
-    return 2
-  fi
-  local vm_name="$1" ip rc=0 remote lb="" lb_ip="" key
-  local -a proxy=()
+  _require_key || return $?
+  local vm_name="$1" ip rc=0 remote
   shift
   ip="$(vm_ip "$vm_name")" || return $?
   remote="$(printf '%q ' "$@")"
-  if [[ -n "${VM_ROUTES[$vm_name]:-}" ]]; then
-    lb="${VM_ROUTES[$vm_name]}"
-    lb_ip="$(_lb_ip "$lb")" || return $?
-    # El comando del salto lo ejecuta un shell local: la ruta de la llave va citada.
-    key="$(printf '%q' "$APP_SSH_KEY_PATH")"
-    proxy=(-o "ProxyCommand=ssh -i $key -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$key.known_hosts -o HostKeyAlias=$lb -W %h:%p jump@$lb_ip")
-  fi
+  _proxy_opts "$vm_name" || return $?
   ssh -i "$APP_SSH_KEY_PATH" -o BatchMode=yes -o ConnectTimeout=10 \
     -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$APP_SSH_KEY_PATH.known_hosts" \
-    "${proxy[@]}" -o HostKeyAlias="$vm_name" "root@$ip" -- "$remote" || rc=$?
+    "${_VM_PROXY[@]}" -o HostKeyAlias="$vm_name" "root@$ip" -- "$remote" || rc=$?
   if ((rc == 255)); then
     echo "No se pudo conectar por SSH a $ip" >&2
     return 4
@@ -201,4 +217,26 @@ vm_exec() {
     return 5
   fi
   return 0
+}
+
+# == 5. vm_scp <vm_name> <local> <remoto> (005) ==
+# 5.1 Exigir 3 argumentos y APP_SSH_KEY_PATH; si no, devolver 2.
+# 5.2 Resolver la IP con vm_ip (7 o 12 sin llamar a scp) y la ruta como vm_exec (pasos 4.3 y 4.4).
+# 5.3 Ejecutar "scp <opciones de vm_exec> <local> root@<ip>:<remoto>". Si scp falla, devolver 4.
+
+vm_scp() {
+  if (($# != 3)); then
+    echo "Uso: vm_scp <vm_name> <local> <remoto>" >&2
+    return 2
+  fi
+  _require_key || return $?
+  local vm_name="$1" local_file="$2" remote_path="$3" ip
+  ip="$(vm_ip "$vm_name")" || return $?
+  _proxy_opts "$vm_name" || return $?
+  if ! scp -i "$APP_SSH_KEY_PATH" -o BatchMode=yes -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$APP_SSH_KEY_PATH.known_hosts" \
+    "${_VM_PROXY[@]}" -o HostKeyAlias="$vm_name" "$local_file" "root@$ip:$remote_path"; then
+    echo "No se pudo copiar el archivo por scp a $ip" >&2
+    return 4
+  fi
 }

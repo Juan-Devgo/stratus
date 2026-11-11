@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { HostnameForm } from "./HostnameForm";
 import type { Vm } from "./types";
 
-const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" };
+const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" };
 const TIMEOUT = "La operación superó el tiempo límite de 15 minutos";
 
 function jsonResponse(status: number, body: unknown) {

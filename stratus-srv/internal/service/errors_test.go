@@ -111,3 +111,58 @@ func TestAC29_HAProxySentinelTexts(t *testing.T) {
 		})
 	}
 }
+
+// Módulo 005: los textos de los centinelas son los de la especificación (REQ-3, REQ-9, REQ-13,
+// REQ-15, REQ-23, REQ-25, REQ-28).
+func TestAC23_HTTPaaSSentinelTexts(t *testing.T) {
+	tests := []struct {
+		err  error
+		want string
+	}{
+		{ErrApacheBaseDiskMissing, "Disco base de Apache no encontrado"},
+		{ErrNginxBaseDiskMissing, "Disco base de Nginx no encontrado"},
+		{ErrDNSBaseDiskMissing, "Disco base de DNS no encontrado"},
+		{ErrDNSExists, "Ya existe un servidor DNS"},
+		{ErrNoDNSServer, "No hay servidor DNS"},
+		{ErrDNSConfigIncomplete, "Configuración de DNS incompleta"},
+		{ErrDNSIPInUse, "La IP del servidor DNS ya está en uso"},
+		{ErrDNSOff, "El servidor DNS está apagado; enciéndalo para cambiar los registros"},
+		{ErrDNSOffZone, "El servidor DNS está apagado; enciéndalo para ver la zona"},
+		{ErrZoneInvalid, "Zona DNS inválida; se mantuvo la anterior"},
+		{ErrRecordExists, "La VM ya tiene un registro DNS"},
+		{ErrIndexMissing, "El archivo debe contener index.html en la raíz"},
+		{ErrVMNotOnLAN, "La VM no tiene una dirección en la LAN"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.err.Error(); got != tt.want {
+				t.Errorf("Error() = %q, se esperaba %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// AC-9, AC-28: PackageBlockedError muestra su texto y equivale a ErrPackageBlocked.
+func TestAC9_PackageBlockedError(t *testing.T) {
+	msg := "No se puede eliminar nginx: el servidor web lo usa"
+	err := fmt.Errorf("remove_package: %w", &PackageBlockedError{Message: msg})
+	if got := err.Error(); got != "remove_package: "+msg {
+		t.Errorf("Error() = %q", got)
+	}
+	if !errors.Is(err, ErrPackageBlocked) {
+		t.Error("errors.Is(*PackageBlockedError, ErrPackageBlocked) = false")
+	}
+}
+
+// AC-31: ServerRecordError nombra el balanceador del que la VM es servidor (REQ-23).
+func TestAC31_ServerRecordError(t *testing.T) {
+	err := fmt.Errorf("add_records: %w", &ServerRecordError{LB: "lb1"})
+	want := "add_records: La VM es servidor del balanceador lb1; registre el balanceador"
+	if got := err.Error(); got != want {
+		t.Errorf("Error() = %q, se esperaba %q", got, want)
+	}
+	var target *ServerRecordError
+	if !errors.As(err, &target) || target.LB != "lb1" {
+		t.Error("errors.As no recuperó *ServerRecordError")
+	}
+}

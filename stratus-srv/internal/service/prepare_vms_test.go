@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -107,9 +108,12 @@ func newTestEnv(t *testing.T, runner ScriptRunner) testEnv {
 	}
 	locks := &VMLocks{}
 	logger := log.New(env.logs, "", 0)
+	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
+	dns := NewDNSService(DNSConfig{}, runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, locks, logger)
 	haproxy := NewHAProxyService(HAProxyConfig{BaseDisk: testHAProxyDisk, BridgeAdapter: testBridge},
-		runner, env.vms, env.lbs, env.history, locks, logger)
-	env.svc = NewPrepareService(cfg, runner, env.vms, env.lbs, env.history, locks, haproxy, logger)
+		runner, env.vms, env.lbs, dnsRepo, env.history, locks, dns, logger)
+	web := NewWebService(WebConfig{}, runner, env.vms, env.lbs, webRepo, dnsRepo, env.history, locks, dns, logger)
+	env.svc = NewPrepareService(cfg, runner, env.vms, env.lbs, env.history, locks, haproxy, web, dns, logger)
 	return env
 }
 
@@ -125,8 +129,11 @@ func newPrepareForTest(t *testing.T, runner ScriptRunner, vms *repository.VMRepo
 	}
 	t.Cleanup(func() { db.Close() })
 	lbs := repository.NewLBRepository(db)
-	haproxy := NewHAProxyService(HAProxyConfig{}, runner, vms, lbs, history, locks, logger)
-	return NewPrepareService(Config{KeyTTL: 1}, runner, vms, lbs, history, locks, haproxy, logger)
+	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
+	dns := NewDNSService(DNSConfig{}, runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
+	haproxy := NewHAProxyService(HAProxyConfig{}, runner, vms, lbs, dnsRepo, history, locks, dns, logger)
+	web := NewWebService(WebConfig{}, runner, vms, lbs, webRepo, dnsRepo, history, locks, dns, logger)
+	return NewPrepareService(Config{KeyTTL: 1}, runner, vms, lbs, history, locks, haproxy, web, dns, logger)
 }
 
 // register registra una VM directamente en SQLite, sin pasar por el script.
@@ -846,11 +853,11 @@ func TestAC43_DeleteVMOnLBUsesDeleteLB(t *testing.T) {
 	if err := env.lbs.DeleteServer(ctx, "lb1", "web-a"); err != nil {
 		t.Fatal(err)
 	}
-	msg, err := env.svc.DeleteVM(ctx, "lb1")
+	res, err := env.svc.DeleteVM(ctx, "lb1")
 	if err != nil {
 		t.Fatalf("DeleteVM sin servidores: %v", err)
 	}
-	if msg != "Balanceador lb1 eliminado junto con su red interna" {
+	if msg := res.Message; msg != "Balanceador lb1 eliminado junto con su red interna" {
 		t.Errorf("mensaje = %q", msg)
 	}
 	calls := runner.callsTo("haproxy/delete-lb.sh")
@@ -977,4 +984,239 @@ func TestStartFailureSkipsRefresh(t *testing.T) {
 	if n := len(runner.callsTo("haproxy/refresh-lb.sh")); n != 0 {
 		t.Errorf("refresh-lb.sh se llamó %d veces, se esperaban 0", n)
 	}
+}
+
+// AC-8: en el selector de 001 cada VM trae su tipo: el de servidor web o vacío.
+func TestAC8_ListVMsKind(t *testing.T) {
+	runner := &fakeRunner{results: map[string]RunResult{
+		"prepare/list-vms.sh": {Stdout: []byte("web-a running 192.168.1.40\nweb-b poweroff -\nvm1 running 192.168.1.50\n" +
+			"dns1 running 192.168.1.53\n")},
+	}}
+	env := newDNSEnv(t, runner)
+	env.registerWeb(t, "web-a", WebTypeNginx)
+	env.registerWeb(t, "web-b", WebTypeApache)
+	env.registerDNS(t, "dns1")
+	if _, err := env.vms.Insert(context.Background(), "vm1"); err != nil {
+		t.Fatal(err)
+	}
+
+	vms, _, err := env.prepare.ListVMs(context.Background())
+	if err != nil {
+		t.Fatalf("ListVMs: %v", err)
+	}
+
+	got := map[string]string{}
+	for _, vm := range vms {
+		got[vm.Name] = vm.Kind
+	}
+	want := map[string]string{"web-a": "nginx", "web-b": "apache", "vm1": "", "dns1": "dns"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("kind = %v, se esperaba %v", got, want)
+	}
+}
+
+// AC-10: eliminar desde 001 un servidor web pasa por el módulo web (delete_web) y borra sus filas.
+func TestAC10_DeleteVMDelegatesWebServer(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newWebEnv(t, runner)
+	ctx := context.Background()
+	env.registerWeb(t, "web-a", WebTypeNginx)
+
+	res, err := env.prepare.DeleteVM(ctx, "web-a")
+
+	if err != nil || res.Message != "Servidor web web-a eliminado junto con su disco" {
+		t.Fatalf("DeleteVM = %+v, %v", res, err)
+	}
+	if op := env.lastOperation(t); op.Operation != "delete_web" {
+		t.Errorf("historial web = %+v, se esperaba delete_web", op)
+	}
+	if _, ok, _ := env.web.Get(ctx, "web-a"); ok {
+		t.Error("web-a debía salir de web_servers")
+	}
+}
+
+// AC-29: eliminar desde 001 el servidor DNS pasa por el módulo DNS (delete_dns).
+func TestAC29_PrepareDeleteDelegatesDNS(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newDNSEnv(t, runner)
+	ctx := context.Background()
+	env.registerDNS(t, "dns1")
+
+	res, err := env.prepare.DeleteVM(ctx, "dns1")
+
+	if err != nil || res.Message != "Servidor DNS dns1 eliminado junto con su disco" {
+		t.Fatalf("DeleteVM = %+v, %v", res, err)
+	}
+	if op := env.lastDNSOperation(t); op.Operation != "delete_dns" || op.Module != dnsModule {
+		t.Errorf("historial dns = %+v, se esperaba delete_dns", op)
+	}
+	if _, ok, _ := env.dns.Server(ctx); ok {
+		t.Error("dns_server debía quedar vacío")
+	}
+}
+
+// AC-34: eliminar desde 001 una VM con registro llama a delete-vm.sh y después a remove-record.sh sin
+// ella; con el servidor DNS apagado, la eliminación termina bien con la advertencia de REQ-24, una
+// fila remove_record fallida y el registro ya borrado.
+func TestAC34_DeleteVMRemovesRecord(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		removeRC int
+		warning  string
+	}{
+		{"DNS encendido", 0, ""},
+		{"DNS apagado", 7, "VM eliminada; no se pudo quitar su registro DNS, use Actualizar registros"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env, runner := newRecordsEnv(t)
+			runner.results["dns/remove-record.sh"] = RunResult{ExitCode: tt.removeRC}
+			ctx := context.Background()
+			if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"},
+				{VM: "vm2", IP: "192.168.1.42"}}); err != nil {
+				t.Fatal(err)
+			}
+
+			res, err := env.prepare.DeleteVM(ctx, "vm1")
+
+			if err != nil || res.Message != "VM vm1 eliminada junto con su disco" || res.Warning != tt.warning {
+				t.Fatalf("DeleteVM = %+v, %v", res, err)
+			}
+			calls := runner.callsTo("dns/remove-record.sh")
+			want := []string{"dns1", testDomain, "192.168.1.53/24", "vm1", "vm2,192.168.1.42"}
+			if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+				t.Errorf("remove-record.sh = %+v, se esperaba %v", calls, want)
+			}
+			if _, has, _ := env.dns.Record(ctx, "vm1"); has {
+				t.Error("el registro de vm1 debía borrarse")
+			}
+			if tt.removeRC != 0 {
+				if op := env.lastDNSOperation(t); op.Operation != "remove_record" || op.Result != "error" {
+					t.Errorf("historial dns = %+v, se esperaba remove_record fallido", op)
+				}
+			}
+		})
+	}
+}
+
+// scriptOrder devuelve los scripts llamados en orden, sin las lecturas de list-vms.sh.
+func (f *fakeRunner) scriptOrder() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var order []string
+	for _, c := range f.calls {
+		if c.Script != "prepare/list-vms.sh" {
+			order = append(order, c.Script)
+		}
+	}
+	return order
+}
+
+// AC-36, REQ-26: encender desde 001 una VM con registro ejecuta start-vm.sh y después
+// refresh-records.sh esperando solo a esa VM; la fila guarda la IP nueva y queda refresh_records.
+func TestAC36_StartVMRefreshesRecord(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	runner.results["dns/refresh-records.sh"] = RunResult{Stdout: []byte("vm1 192.168.1.45\nreloaded=yes\n")}
+	ctx := context.Background()
+	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := env.prepare.StartVM(ctx, "vm1")
+
+	if err != nil || res.Message != "VM vm1 encendida" || res.Warning != "" {
+		t.Fatalf("StartVM = %+v, %v", res, err)
+	}
+	if order := runner.scriptOrder(); !reflect.DeepEqual(order, []string{"prepare/start-vm.sh", "dns/refresh-records.sh"}) {
+		t.Errorf("scripts = %v", order)
+	}
+	calls := runner.callsTo("dns/refresh-records.sh")
+	want := []string{"dns1", testDomain, "192.168.1.53/24", "vm1", "-", "vm1,192.168.1.40"}
+	if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+		t.Errorf("refresh-records.sh = %+v, se esperaba %v", calls, want)
+	}
+	if rec, _, _ := env.dns.Record(ctx, "vm1"); rec.IP != "192.168.1.45" {
+		t.Errorf("IP del registro = %q, se esperaba 192.168.1.45", rec.IP)
+	}
+	if op := env.lastDNSOperation(t); op.Operation != "refresh_records" || op.Result != "ok" {
+		t.Errorf("historial dns = %+v", op)
+	}
+
+	// Una VM sin registro no actualiza nada.
+	if _, err := env.prepare.StartVM(ctx, "vm2"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(runner.callsTo("dns/refresh-records.sh")); n != 1 {
+		t.Errorf("refresh-records.sh se llamó %d veces, se esperaba 1", n)
+	}
+}
+
+// AC-36, REQ-27: encender el servidor DNS actualiza todos los registros, esperando a todas sus VMs.
+func TestAC36_StartDNSRefreshesAll(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	runner.results["dns/refresh-records.sh"] = RunResult{Stdout: []byte("lb1 192.168.1.41\nvm1 192.168.1.40\nreloaded=no\n")}
+	ctx := context.Background()
+	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"},
+		{VM: "lb1", IP: "192.168.1.41"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := env.prepare.StartVM(ctx, "dns1")
+
+	if err != nil || res.Warning != "" {
+		t.Fatalf("StartVM = %+v, %v", res, err)
+	}
+	calls := runner.callsTo("dns/refresh-records.sh")
+	want := []string{"dns1", testDomain, "192.168.1.53/24", "lb1,vm1", "-", "lb1,192.168.1.41", "vm1,192.168.1.40"}
+	if len(calls) != 1 || !reflect.DeepEqual(calls[0].Args, want) {
+		t.Errorf("refresh-records.sh = %+v, se esperaba %v", calls, want)
+	}
+}
+
+// AC-38, REQ-26: con el servidor DNS apagado, encender una VM con registro termina bien con la
+// advertencia de REQ-26 y una fila refresh_records fallida; junto a la de 004 van separadas por \n.
+func TestAC38_StartWithDNSOffWarns(t *testing.T) {
+	const dnsWarning = "Operación completada; no se pudo actualizar el registro DNS de %s, use Actualizar registros"
+	t.Run("VM común", func(t *testing.T) {
+		env, runner := newRecordsEnv(t)
+		runner.results["dns/refresh-records.sh"] = RunResult{ExitCode: 7}
+		ctx := context.Background()
+		if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"}}); err != nil {
+			t.Fatal(err)
+		}
+
+		res, err := env.prepare.StartVM(ctx, "vm1")
+
+		if err != nil || res.Message != "VM vm1 encendida" {
+			t.Fatalf("StartVM = %+v, %v", res, err)
+		}
+		if want := fmt.Sprintf(dnsWarning, "vm1"); res.Warning != want {
+			t.Errorf("Warning = %q, se esperaba %q", res.Warning, want)
+		}
+		if op := env.lastDNSOperation(t); op.Operation != "refresh_records" || op.Result != "error" {
+			t.Errorf("historial dns = %+v, se esperaba refresh_records fallido", op)
+		}
+		if rec, _, _ := env.dns.Record(ctx, "vm1"); rec.IP != "192.168.1.40" {
+			t.Errorf("IP del registro = %q, se esperaba la anterior", rec.IP)
+		}
+	})
+	t.Run("con la advertencia de 004", func(t *testing.T) {
+		env, runner := newRecordsEnv(t)
+		runner.results["dns/refresh-records.sh"] = RunResult{ExitCode: 7}
+		runner.results["haproxy/refresh-lb.sh"] = RunResult{ExitCode: 5}
+		ctx := context.Background()
+		if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "lb1", IP: "192.168.1.41"}}); err != nil {
+			t.Fatal(err)
+		}
+
+		res, err := env.prepare.StartVM(ctx, "lb1")
+
+		if err != nil {
+			t.Fatalf("StartVM: %v", err)
+		}
+		want := "VM iniciada; no se pudieron actualizar las IPs del balanceador lb1, use Actualizar IPs\n" +
+			fmt.Sprintf(dnsWarning, "lb1")
+		if res.Warning != want {
+			t.Errorf("Warning = %q, se esperaba %q", res.Warning, want)
+		}
+	})
 }

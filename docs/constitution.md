@@ -1,8 +1,8 @@
 # Constitution
-Version: 2.0.0
+Version: 2.1.0
 
 ## 1. Mission
-Web console for a student team that automates administration tasks on remote Debian GNU/Linux 13 virtual machines, grouped into four modules: system preparation, user management, systemd service management and HAProxy backend management. It MUST NOT become a tool that performs system operations outside bash scripts.
+Web console for a student team that automates administration tasks on remote Debian GNU/Linux 13 virtual machines, grouped into six modules: system preparation, user management, systemd service management, HAProxy backend management, web servers (Apache and Nginx) and DNS (bind9). It MUST NOT become a tool that performs system operations outside bash scripts.
 
 ## 2. Core principles
 - P1. The backend MUST only validate input, invoke scripts and report results; it MUST NOT perform system operations on the VM directly, and all system-level logic MUST live in bash scripts, the single unit of automation.
@@ -20,3 +20,4 @@ Web console for a student team that automates administration tasks on remote Deb
 |---|---|---|
 | 2026-10-19 | 1.0.0 | Initial version |
 | 2026-10-22 | 2.0.0 | P4 redefined: the switch from Guest Additions to SSH happens when key access is configured, not when SSH is installed |
+| 2026-10-31 | 2.1.0 | Mission extended from four to six modules: web servers (Apache and Nginx) and DNS (bind9) added; no principle changed |

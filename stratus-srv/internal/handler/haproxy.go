@@ -34,12 +34,12 @@ func RegisterHAProxy(mux *http.ServeMux, svc *service.HAProxyService) {
 	})
 
 	mux.HandleFunc("DELETE /api/haproxy/lbs/{lb}", func(w http.ResponseWriter, r *http.Request) {
-		msg, err := svc.DeleteLB(r.Context(), r.PathValue("lb"))
+		res, err := svc.DeleteLB(r.Context(), r.PathValue("lb"))
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, messageBody{msg})
+		writeJSON(w, http.StatusOK, res)
 	})
 
 	mux.HandleFunc("GET /api/haproxy/lbs/{lb}/servers", func(w http.ResponseWriter, r *http.Request) {
@@ -61,21 +61,21 @@ func RegisterHAProxy(mux *http.ServeMux, svc *service.HAProxyService) {
 		if !decodeJSON(w, r, &in) {
 			return
 		}
-		msg, err := svc.AssignServer(r.Context(), r.PathValue("lb"), in.VM, in.Port)
+		res, err := svc.AssignServer(r.Context(), r.PathValue("lb"), in.VM, in.Port)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, messageBody{msg})
+		writeJSON(w, http.StatusCreated, res)
 	})
 
 	mux.HandleFunc("DELETE /api/haproxy/lbs/{lb}/servers/{vm}", func(w http.ResponseWriter, r *http.Request) {
-		msg, err := svc.RemoveServer(r.Context(), r.PathValue("lb"), r.PathValue("vm"))
+		res, err := svc.RemoveServer(r.Context(), r.PathValue("lb"), r.PathValue("vm"))
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, messageBody{msg})
+		writeJSON(w, http.StatusOK, res)
 	})
 
 	mux.HandleFunc("PUT /api/haproxy/lbs/{lb}/frontend", func(w http.ResponseWriter, r *http.Request) {

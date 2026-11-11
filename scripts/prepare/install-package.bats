@@ -196,3 +196,66 @@ setup() {
   grep -qF -- "ufw allow 8080/tcp" "$CALLS"
   assert_routed_ssh lb1 web-a
 }
+
+# --- --role (005 REQ-7, REQ-18) ---
+
+@test "005 AC-9 install-package --role web-nginx rechaza apache2 y con ufw permite el 80" {
+  run --separate-stderr "$SCRIPT" --role web-nginx vm1 apache2
+  [ "$status" -eq 2 ]
+  [ "$stderr" = "No se puede instalar apache2: el servidor web usa nginx" ]
+  [ ! -s "$CALLS" ]
+
+  run "$SCRIPT" --role web-nginx vm1 ufw
+  [ "$status" -eq 0 ]
+  grep -qF -- "ufw allow 22/tcp" "$CALLS"
+  grep -qF -- "ufw allow 80/tcp" "$CALLS"
+  [ "$(grep -nF -- "ufw allow 22/tcp" "$CALLS" | cut -d: -f1)" -lt "$(grep -nF -- "ufw allow 80/tcp" "$CALLS" | cut -d: -f1)" ]
+}
+
+@test "005 AC-9 install-package --role web-apache rechaza nginx y con ufw permite el 80" {
+  run --separate-stderr "$SCRIPT" --role web-apache vm1 nginx
+  [ "$status" -eq 2 ]
+  [ "$stderr" = "No se puede instalar nginx: el servidor web usa apache2" ]
+  [ ! -s "$CALLS" ]
+
+  run "$SCRIPT" --role web-apache vm1 ufw
+  [ "$status" -eq 0 ]
+  grep -qF -- "ufw allow 80/tcp" "$CALLS"
+}
+
+@test "005 AC-28 install-package --role dns con ufw permite 22/tcp, 53/tcp y 53/udp" {
+  run "$SCRIPT" --role dns vm1 ufw
+
+  [ "$status" -eq 0 ]
+  grep -qF -- "ufw allow 22/tcp" "$CALLS"
+  grep -qF -- "ufw allow 53/tcp" "$CALLS"
+  grep -qF -- "ufw allow 53/udp" "$CALLS"
+  ! grep -qF -- "ufw allow 80/tcp" "$CALLS" || return 1
+}
+
+@test "005 AC-9 install-package --role web-nginx instala otros paquetes sin tocar ufw" {
+  run "$SCRIPT" --role web-nginx vm1 curl
+  [ "$status" -eq 0 ]
+  grep -qF -- "apt-get install -y curl" "$CALLS"
+  ! grep -qF -- "ufw" "$CALLS" || return 1
+}
+
+@test "005 AC-55 install-package rechaza un --role fuera de la lista sin llamar a nada" {
+  for role in iis "" web dns2; do
+    run "$SCRIPT" --role "$role" vm1 ufw
+    [ "$status" -eq 2 ]
+  done
+  run "$SCRIPT" --role
+  [ "$status" -eq 2 ]
+  [ ! -s "$CALLS" ]
+}
+
+@test "005 AC-9 install-package acepta --jump y --role juntos, en ese orden" {
+  stub_jump_topology lb1 running web-a running
+
+  run "$SCRIPT" --jump lb1 --role web-nginx web-a ufw
+
+  [ "$status" -eq 0 ]
+  grep -qF -- "ufw allow 80/tcp" "$CALLS"
+  assert_routed_ssh lb1 web-a
+}

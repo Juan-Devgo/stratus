@@ -4,7 +4,7 @@
 #
 # Funciones:
 #   assert_script_structure <archivo>  verifica la estructura exigida por AC-24.
-#   setup_stubs                        pone stubs de VBoxManage, ssh, ssh-keygen y sleep
+#   setup_stubs                        pone stubs de VBoxManage, ssh, scp, ssh-keygen y sleep
 #                                      al inicio del PATH; cada llamada se registra en
 #                                      "$BATS_TEST_TMPDIR/calls.log".
 #   stub_command <comando> <cuerpo>    agrega una salida o un código de salida a un stub.
@@ -12,8 +12,6 @@
 #                                      conocida "$GUEST_PASSWORD" de la imagen base (REQ-22).
 #   stub_vm_ip <vm> <ipv4|->           hace que el stub de VBoxManage informe la VM como
 #                                      encendida con esa IP, o apagada sin IP si es "-".
-#   stub_vm_nics <vm> <estado> <mac1> <ip1|-> [<mac2> <ip2|->]
-#                                      simula una VM con una o dos NICs para vm_nic_ip (REQ-13).
 #   stub_vm_nics <vm> <estado> <mac1> <ip1|-> [<mac2> <ip2|->]
 #                                      simula una VM con una o dos NICs para vm_nic_ip (REQ-13).
 
@@ -78,7 +76,7 @@ setup_stubs() {
   : >"$BATS_TEST_TMPDIR/calls.log"
 
   local cmd
-  for cmd in VBoxManage ssh ssh-keygen sleep; do
+  for cmd in VBoxManage ssh scp ssh-keygen sleep; do
     # El log se fija al crear el stub para que funcione aunque el script cambie el entorno.
     cat >"$bin_dir/$cmd" <<EOF
 #!/usr/bin/env bash

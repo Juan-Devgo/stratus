@@ -1,8 +1,6 @@
-import { TriangleAlertIcon } from "lucide-react";
 import { useState } from "react";
 
 import { OperationResult } from "@/components/OperationResult";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,8 +14,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
+import { WarningAlert } from "@/components/WarningAlert";
 
-import { deleteVm, startVm, stopVm } from "./api";
+import { type ActionResult, deleteVm, startVm, stopVm } from "./api";
 import type { Vm } from "./types";
 import { useOperation } from "./useOperation";
 
@@ -31,7 +30,7 @@ export function VmActions({ vm, onDone }: Props) {
   // Acción en curso, para mostrar el Spinner en su botón.
   const [active, setActive] = useState<Action | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // Advertencia de la última operación de encender; se borra al empezar cualquier otra.
+  // Advertencia de la última operación de encender o eliminar; se borra al empezar cualquier otra.
   const [warning, setWarning] = useState("");
   const disabled = vm === null || pending;
 
@@ -46,11 +45,14 @@ export function VmActions({ vm, onDone }: Props) {
     onDone();
   }
 
-  // Encender devuelve además una advertencia opcional: el mensaje va al resultado y la advertencia, aparte.
-  async function start(name: string): Promise<string> {
-    const started = await startVm(name);
-    setWarning(started.warning ?? "");
-    return started.message;
+  // Encender y eliminar devuelven además una advertencia opcional: el mensaje va al resultado y la
+  // advertencia, aparte.
+  function withWarning(fn: (name: string) => Promise<ActionResult>) {
+    return async (name: string): Promise<string> => {
+      const res = await fn(name);
+      setWarning(res.warning ?? "");
+      return res.message;
+    };
   }
 
   function label(action: Action, text: string) {
@@ -65,7 +67,7 @@ export function VmActions({ vm, onDone }: Props) {
   return (
     <FieldGroup>
       <Field orientation="horizontal">
-        <Button variant="outline" disabled={disabled} onClick={() => execute("start", start)}>
+        <Button variant="outline" disabled={disabled} onClick={() => execute("start", withWarning(startVm))}>
           {label("start", "Iniciar")}
         </Button>
         <Button variant="outline" disabled={disabled} onClick={() => execute("stop", stopVm)}>
@@ -92,7 +94,7 @@ export function VmActions({ vm, onDone }: Props) {
               variant="destructive"
               onClick={() => {
                 setConfirmOpen(false);
-                void execute("delete", deleteVm);
+                void execute("delete", withWarning(deleteVm));
               }}
             >
               Confirmar
@@ -102,13 +104,7 @@ export function VmActions({ vm, onDone }: Props) {
       </AlertDialog>
 
       <OperationResult result={result} />
-      {warning && (
-        <Alert>
-          <TriangleAlertIcon />
-          <AlertTitle>Advertencia</AlertTitle>
-          <AlertDescription>{warning}</AlertDescription>
-        </Alert>
-      )}
+      <WarningAlert warning={warning} />
     </FieldGroup>
   );
 }

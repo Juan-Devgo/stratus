@@ -1,11 +1,13 @@
 import { Route, Routes } from "react-router";
 
 import { AppLayout } from "./components/AppLayout";
+import { Dns } from "./routes/Dns";
 import { HAProxy } from "./routes/HAProxy";
 import { Home } from "./routes/Home";
 import { Prepare } from "./routes/Prepare";
 import { Services } from "./routes/Services";
 import { Users } from "./routes/Users";
+import { Web } from "./routes/Web";
 
 export function App() {
   return (
@@ -17,6 +19,8 @@ export function App() {
         <Route path="/users" element={<Users />} />
         <Route path="/services" element={<Services />} />
         <Route path="/haproxy" element={<HAProxy />} />
+        <Route path="/web" element={<Web />} />
+        <Route path="/dns" element={<Dns />} />
       </Route>
     </Routes>
   );

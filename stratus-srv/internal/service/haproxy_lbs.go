@@ -31,7 +31,7 @@ func (s *HAProxyService) ListLBs(ctx context.Context) (lbs []LBView, listErr str
 	if err != nil {
 		return nil, "", err
 	}
-	states, listErr := queryVMStates(ctx, s.runner, s.logger)
+	states, listErr, _ := queryVMStates(ctx, s.runner, s.logger)
 
 	var missing []string
 	lbs = make([]LBView, 0, len(rows))
@@ -118,17 +118,18 @@ func (s *HAProxyService) releaseName(ctx context.Context, name string) {
 
 // DeleteLB elimina el balanceador con delete-lb.sh (VM, disco, red interna y servidor DHCP). Con al
 // menos un servidor asignado se rechaza sin llamar al script (REQ-6). Si el script termina bien,
-// borra sus filas de load_balancers y de vms.
-func (s *HAProxyService) DeleteLB(ctx context.Context, name string) (string, error) {
+// borra sus filas de load_balancers y de vms y después su registro DNS; un fallo del registro es la
+// advertencia de 005 REQ-24.
+func (s *HAProxyService) DeleteLB(ctx context.Context, name string) (ActionResult, error) {
 	if _, err := s.getLB(ctx, name); err != nil {
-		return "", err
+		return ActionResult{}, err
 	}
 	servers, err := s.lbs.Servers(ctx, name)
 	if err != nil {
-		return "", err
+		return ActionResult{}, err
 	}
 	if len(servers) > 0 {
-		return "", ErrLBHasServers
+		return ActionResult{}, ErrLBHasServers
 	}
 	deleteRows := func(ctx context.Context) error {
 		if err := s.lbs.DeleteLB(ctx, name); err != nil {
@@ -138,12 +139,13 @@ func (s *HAProxyService) DeleteLB(ctx context.Context, name string) (string, err
 	}
 	res, err := s.ops.run(ctx, "delete_lb", name, "haproxy/delete-lb.sh", []string{name}, true, deleteRows)
 	if err != nil {
-		return "", mapHAProxyError(err)
+		return ActionResult{}, mapHAProxyError(err)
 	}
-	if msg := firstLine(string(res.Stdout)); msg != "" {
-		return msg, nil
+	msg := firstLine(string(res.Stdout))
+	if msg == "" {
+		msg = fmt.Sprintf("Balanceador %s eliminado junto con su red interna", name)
 	}
-	return fmt.Sprintf("Balanceador %s eliminado junto con su red interna", name), nil
+	return ActionResult{Message: msg, Warning: s.dns.AfterVMDeleted(ctx, name)}, nil
 }
 
 // reservedList arma el argumento "reserved" de create-lb.sh: "-" sin subredes, o "1,3,...".

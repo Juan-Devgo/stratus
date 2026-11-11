@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { Vm } from "./types";
 import { UserKeyForm } from "./UserKeyForm";
 
-const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" };
+const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" };
 const KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nclave-de-prueba\n-----END OPENSSH PRIVATE KEY-----\n";
 const UNAVAILABLE = "La llave ya no está disponible, genere una nueva";
 const GENERATED = "Llave de root generada para vm1";
@@ -129,7 +129,7 @@ describe("UserKeyForm", () => {
 
   it("AC-27 usage message shows the ssh -J command for a server behind a load balancer", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { message: GENERATED }));
-    const server: Vm = { ...vm1, name: "web-a", ip: "10.10.1.11", role: "server", lb: "lb1", lb_ip: "192.168.1.60" };
+    const server: Vm = { ...vm1, name: "web-a", ip: "10.10.1.11", role: "server", lb: "lb1", lb_ip: "192.168.1.60", kind: "" };
     const user = userEvent.setup();
     render(<UserKeyForm vm={server} onDone={vi.fn()} />);
 

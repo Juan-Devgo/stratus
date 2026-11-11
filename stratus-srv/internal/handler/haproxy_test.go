@@ -533,3 +533,38 @@ func TestAC35_HistoryRoute(t *testing.T) {
 		t.Errorf("fila = %v", row)
 	}
 }
+
+// AC-37, REQ-41, REQ-42: las respuestas de asignar y quitar traen "notice" cuando hay servidor DNS,
+// y no la traen cuando no lo hay.
+func TestAC37_AssignAndRemoveResponsesCarryNotice(t *testing.T) {
+	ts, _ := newLBServer(t, map[string]service.RunResult{
+		"haproxy/assign-server.sh": {Stdout: []byte("Servidor server1 (web-a) asignado a lb1\nip=10.10.1.11\n")},
+		"haproxy/remove-server.sh": {Stdout: []byte("Servidor web-a quitado de lb1\n")},
+	})
+	ctx := context.Background()
+	reserve(t, ts.vms, "dns1")
+	if err := ts.dns.InsertServer(ctx, "dns1", []repository.DNSRecord{{VM: "web-a", IP: "192.168.1.40"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, ts.URL+"/api/haproxy/lbs/lb1/servers", `{"vm":"web-a","port":80}`)
+
+	if status != http.StatusCreated {
+		t.Fatalf("asignar: status = %d, se esperaba 201", status)
+	}
+	if n, _ := body["notice"].(string); n != "Registro DNS de web-a quitado: los servidores de un balanceador no se registran" {
+		t.Errorf("asignar: notice = %q", n)
+	}
+	if _, has := body["warning"]; has {
+		t.Errorf("asignar: no debía traer warning: %v", body)
+	}
+
+	status, body = do(t, http.MethodDelete, ts.URL+"/api/haproxy/lbs/lb1/servers/web-a", "")
+
+	if status != http.StatusOK {
+		t.Fatalf("quitar: status = %d, se esperaba 200", status)
+	}
+	if n, _ := body["notice"].(string); n != "web-a no tiene registro DNS; agréguelo desde DNS" {
+		t.Errorf("quitar: notice = %q", n)
+	}
+}

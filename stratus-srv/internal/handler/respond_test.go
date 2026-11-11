@@ -1,10 +1,16 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"stratus-srv/internal/service"
@@ -82,6 +88,85 @@ func TestAC15_AC24_AC29_WriteErrorMapsHAProxyErrors(t *testing.T) {
 			}
 			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || body.Error != tt.wantError {
 				t.Errorf("error = %q (%v), se esperaba %q", body.Error, err, tt.wantError)
+			}
+		})
+	}
+}
+
+// AC-23, AC-29, AC-35, AC-41: los errores de los módulos de servidores web y DNS se traducen a su
+// código y texto (REQ-15, REQ-21, REQ-25, REQ-28, REQ-38).
+func TestAC23_AC29_AC35_AC41_WriteErrorMapsHTTPaaSErrors(t *testing.T) {
+	blocked := "No se puede eliminar nginx: el servidor web lo usa"
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantError  string
+	}{
+		{"disco de Apache", service.ErrApacheBaseDiskMissing, http.StatusConflict, "Disco base de Apache no encontrado"},
+		{"disco de Nginx", service.ErrNginxBaseDiskMissing, http.StatusConflict, "Disco base de Nginx no encontrado"},
+		{"disco de DNS", service.ErrDNSBaseDiskMissing, http.StatusConflict, "Disco base de DNS no encontrado"},
+		{"DNS ya existe", service.ErrDNSExists, http.StatusConflict, "Ya existe un servidor DNS"},
+		{"sin servidor DNS", service.ErrNoDNSServer, http.StatusConflict, "No hay servidor DNS"},
+		{"configuración incompleta", service.ErrDNSConfigIncomplete, http.StatusConflict, "Configuración de DNS incompleta"},
+		{"IP en uso", service.ErrDNSIPInUse, http.StatusConflict, "La IP del servidor DNS ya está en uso"},
+		{"DNS apagado", fmt.Errorf("add_records: %w", service.ErrDNSOff), http.StatusConflict, "El servidor DNS está apagado; enciéndalo para cambiar los registros"},
+		{"DNS apagado al leer la zona", fmt.Errorf("show_zone: %w", service.ErrDNSOffZone), http.StatusConflict, "El servidor DNS está apagado; enciéndalo para ver la zona"},
+		{"registro existente", service.ErrRecordExists, http.StatusConflict, "La VM ya tiene un registro DNS"},
+		{"sin index.html", service.ErrIndexMissing, http.StatusUnprocessableEntity, "El archivo debe contener index.html en la raíz"},
+		{"zona inválida", service.ErrZoneInvalid, http.StatusInternalServerError, "Zona DNS inválida; se mantuvo la anterior"},
+		{"paquete protegido", &service.PackageBlockedError{Message: blocked}, http.StatusConflict, blocked},
+		{"sin dirección en la LAN", fmt.Errorf("add_records: %w", service.ErrVMNotOnLAN), http.StatusConflict, "La VM no tiene una dirección en la LAN"},
+		{"servidor de un balanceador", &service.ServerRecordError{LB: "lb1"}, http.StatusConflict, "La VM es servidor del balanceador lb1; registre el balanceador"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeError(rec, tt.err)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, se esperaba %d", rec.Code, tt.wantStatus)
+			}
+			var body struct {
+				Error string `json:"error"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || body.Error != tt.wantError {
+				t.Errorf("error = %q (%v), se esperaba %q", body.Error, err, tt.wantError)
+			}
+		})
+	}
+}
+
+// AC-71: una petición que el navegador abandonó no se registra como error interno ni recibe
+// respuesta (REQ-50); otro error desconocido sí da 500 y la línea del registro.
+func TestAC71_CancelledRequestNotLogged(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantLogged bool
+		wantStatus int
+	}{
+		{"cancelada", fmt.Errorf("obtener servidor DNS: %w", context.Canceled), false, http.StatusOK},
+		{"otro error", fmt.Errorf("obtener servidor DNS: %w", errors.New("disco lleno")), true, http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			log.SetOutput(&buf)
+			t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+			rec := httptest.NewRecorder()
+			writeError(rec, tt.err)
+
+			if got := strings.Contains(buf.String(), "error interno"); got != tt.wantLogged {
+				t.Errorf("registro = %q; se esperaba la línea = %v", buf.String(), tt.wantLogged)
+			}
+			// httptest.ResponseRecorder queda en 200 y sin cuerpo si no se escribió nada.
+			if rec.Code != tt.wantStatus {
+				t.Errorf("código = %d; se esperaba %d", rec.Code, tt.wantStatus)
+			}
+			if !tt.wantLogged && rec.Body.Len() != 0 {
+				t.Errorf("cuerpo = %q; se esperaba vacío", rec.Body.String())
 			}
 		})
 	}

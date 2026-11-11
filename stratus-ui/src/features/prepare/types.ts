@@ -5,6 +5,9 @@ export type VmState = "running" | "poweroff" | "unknown";
 // Rol de la VM según la topología de HAProxy (004): común, balanceador o servidor de un balanceador.
 export type VmRole = "vm" | "lb" | "server";
 
+// Tipo de VM para el selector (005): "" común, servidor web Apache o Nginx, o el servidor DNS.
+export type VmKind = "" | "apache" | "nginx" | "dns";
+
 export interface Vm {
   name: string;
   state: VmState;
@@ -13,6 +16,7 @@ export interface Vm {
   role: VmRole;
   lb: string; // de un servidor, el nombre de su balanceador; si no, ""
   lb_ip: string; // de un servidor, la IPv4 en puente de su balanceador; si no, ""
+  kind: VmKind;
 }
 
 export interface OperationRow {

@@ -54,7 +54,15 @@ func RegisterPrepare(mux *http.ServeMux, svc *service.PrepareService) {
 		writeJSON(w, http.StatusOK, res)
 	})
 	mux.HandleFunc("POST /api/prepare/vms/{name}/stop", vmAction(svc.StopVM))
-	mux.HandleFunc("DELETE /api/prepare/vms/{name}", vmAction(svc.DeleteVM))
+	// Eliminar puede dejar la advertencia del registro DNS (005 REQ-24): responde {message, warning?}.
+	mux.HandleFunc("DELETE /api/prepare/vms/{name}", func(w http.ResponseWriter, r *http.Request) {
+		res, err := svc.DeleteVM(r.Context(), r.PathValue("name"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
 
 	mux.HandleFunc("GET /api/prepare/catalog", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, struct {

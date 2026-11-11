@@ -9,7 +9,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
 const NO_IP = "La VM no tiene dirección IP; verifique que esté encendida";
 const VMS = {
-  vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" }],
+  vms: [{ name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" }],
   list_error: "",
 };
 

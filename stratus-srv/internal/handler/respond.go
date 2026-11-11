@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -62,12 +63,31 @@ var sentinelStatus = []struct {
 	{service.ErrHAProxyConfigInvalid, http.StatusInternalServerError, service.ErrHAProxyConfigInvalid.Error()},
 	{service.ErrHAProxyReloadFailed, http.StatusInternalServerError, service.ErrHAProxyReloadFailed.Error()},
 	{service.ErrJumpUpdateFailed, http.StatusInternalServerError, service.ErrJumpUpdateFailed.Error()},
+	// Módulos de servidores web y DNS (005).
+	{service.ErrApacheBaseDiskMissing, http.StatusConflict, service.ErrApacheBaseDiskMissing.Error()},
+	{service.ErrNginxBaseDiskMissing, http.StatusConflict, service.ErrNginxBaseDiskMissing.Error()},
+	{service.ErrDNSBaseDiskMissing, http.StatusConflict, service.ErrDNSBaseDiskMissing.Error()},
+	{service.ErrDNSExists, http.StatusConflict, service.ErrDNSExists.Error()},
+	{service.ErrNoDNSServer, http.StatusConflict, service.ErrNoDNSServer.Error()},
+	{service.ErrDNSConfigIncomplete, http.StatusConflict, service.ErrDNSConfigIncomplete.Error()},
+	{service.ErrDNSIPInUse, http.StatusConflict, service.ErrDNSIPInUse.Error()},
+	{service.ErrDNSOff, http.StatusConflict, service.ErrDNSOff.Error()},
+	{service.ErrDNSOffZone, http.StatusConflict, service.ErrDNSOffZone.Error()},
+	{service.ErrRecordExists, http.StatusConflict, service.ErrRecordExists.Error()},
+	{service.ErrVMNotOnLAN, http.StatusConflict, service.ErrVMNotOnLAN.Error()},
+	{service.ErrIndexMissing, http.StatusUnprocessableEntity, service.ErrIndexMissing.Error()},
+	{service.ErrZoneInvalid, http.StatusInternalServerError, service.ErrZoneInvalid.Error()},
 	{service.ErrTimeout, http.StatusGatewayTimeout, "La operación superó el tiempo límite de 15 minutos"},
 }
 
 // writeError traduce el error del servicio a un código HTTP y un mensaje comprensible (REQ-16).
 // Los errores inesperados solo se detallan en el log del servidor, nunca en la respuesta.
 func writeError(w http.ResponseWriter, err error) {
+	// El navegador abandonó la petición (recarga o navegación): nadie lee la respuesta y no es un
+	// error interno (005 REQ-50).
+	if errors.Is(err, context.Canceled) {
+		return
+	}
 	var validation *service.ValidationError
 	if errors.As(err, &validation) {
 		writeJSON(w, http.StatusBadRequest, errorBody{validation.Message})
@@ -77,6 +97,17 @@ func writeError(w http.ResponseWriter, err error) {
 	var lbOff *service.LBOffError
 	if errors.As(err, &lbOff) {
 		writeJSON(w, http.StatusConflict, errorBody{lbOff.Message})
+		return
+	}
+	// Paquete protegido: el texto nombra el paquete.
+	var blocked *service.PackageBlockedError
+	if errors.As(err, &blocked) {
+		writeJSON(w, http.StatusConflict, errorBody{blocked.Message})
+		return
+	}
+	var serverRecord *service.ServerRecordError
+	if errors.As(err, &serverRecord) {
+		writeJSON(w, http.StatusConflict, errorBody{serverRecord.Error()})
 		return
 	}
 	if errors.Is(err, service.ErrInvalidInput) {

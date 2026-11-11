@@ -34,4 +34,18 @@ export const MODULES: readonly {
     path: "/haproxy",
     enabled: true,
   },
+  {
+    id: "web",
+    title: "Servidores web",
+    description: "Crear servidores Apache o Nginx, instalar su página estática y controlar el servicio.",
+    path: "/web",
+    enabled: true,
+  },
+  {
+    id: "dns",
+    title: "DNS",
+    description: "Crear el servidor DNS y registrar los nombres de las VMs.",
+    path: "/dns",
+    enabled: true,
+  },
 ];

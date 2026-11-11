@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"net"
 	"strconv"
 	"strings"
 
@@ -21,6 +19,7 @@ type VMView struct {
 	Role             string `json:"role"`  // vm, lb o server (004)
 	LB               string `json:"lb"`    // de un servidor, su balanceador; si no, vacío
 	LBIP             string `json:"lb_ip"` // de un servidor, la IPv4 en puente de su balanceador
+	Kind             string `json:"kind"`  // "", apache, nginx o dns (005): el tipo para el selector
 }
 
 // ListVMs devuelve las VMs registradas con su estado y su rol (vm, lb o server). Si list-vms.sh
@@ -32,24 +31,17 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 		return nil, "", err
 	}
 	// La topología sale de SQLite: el rol nunca se deduce de VirtualBox (plan, sección 3).
-	lbRows, err := s.lbs.ListLBs(ctx)
+	isLB, serverLB, err := lbTopology(ctx, s.lbs)
 	if err != nil {
 		return nil, "", err
 	}
-	isLB := map[string]bool{}
-	serverLB := map[string]string{} // VM asignada -> su balanceador
-	for _, lb := range lbRows {
-		isLB[lb.Name] = true
-		servers, err := s.lbs.Servers(ctx, lb.Name)
-		if err != nil {
-			return nil, "", err
-		}
-		for _, srv := range servers {
-			serverLB[srv.VM] = lb.Name
-		}
+
+	dnsServer, _, err := s.dns.dnsRepo.Server(ctx)
+	if err != nil {
+		return nil, "", err
 	}
 
-	states, listErr := queryVMStates(ctx, s.runner, s.logger)
+	states, listErr, _ := queryVMStates(ctx, s.runner, s.logger)
 
 	var missing []string
 	vms = make([]VMView, 0, len(rows))
@@ -66,6 +58,14 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 			UserKeyGenerated: row.UserKeyGenerated,
 			Role:             "vm",
 		}
+		if typ, ok, err := s.web.webType(ctx, row.Name); err != nil {
+			return nil, "", err
+		} else if ok {
+			view.Kind = typ
+		}
+		if row.Name == dnsServer {
+			view.Kind = "dns"
+		}
 		switch {
 		case isLB[row.Name]:
 			view.Role = "lb"
@@ -80,60 +80,6 @@ func (s *PrepareService) ListVMs(ctx context.Context) (vms []VMView, listErr str
 		listErr = "Estas VMs no aparecen en VirtualBox: " + strings.Join(missing, ", ")
 	}
 	return vms, listErr, nil
-}
-
-// queryVMStates ejecuta list-vms.sh y devuelve el estado y la IP de cada VM de VirtualBox. Si el
-// script falla, el mapa queda vacío y listErr explica el motivo (sin detalles internos).
-func queryVMStates(ctx context.Context, runner ScriptRunner, logger *log.Logger) (states map[string]vmStatus, listErr string) {
-	states = map[string]vmStatus{}
-	res, runErr := runner.Run(ctx, "prepare/list-vms.sh")
-	switch {
-	case runErr != nil:
-		listErr = "No se pudo consultar el estado de las VMs en VirtualBox"
-		logger.Printf("operación=list_vms error=%q", Redact(runErr.Error()))
-	case res.TimedOut:
-		listErr = "No se pudo consultar el estado de las VMs en VirtualBox: se superó el tiempo límite"
-		logger.Printf("operación=list_vms resultado=timeout")
-	case res.ExitCode != 0:
-		stderr := strings.TrimSpace(Redact(res.Stderr))
-		listErr = fmt.Sprintf("No se pudo consultar el estado de las VMs en VirtualBox (código %d): %s",
-			res.ExitCode, lastLine(stderr))
-		logger.Printf("operación=list_vms código=%d stderr=%q", res.ExitCode, stderr)
-	default:
-		states = parseVMStates(string(res.Stdout))
-	}
-	return states, listErr
-}
-
-// vmStatus es el estado y la IP que informa list-vms.sh para una VM.
-type vmStatus struct {
-	state string
-	ip    string
-}
-
-// parseVMStates lee las líneas "<nombre> <running|poweroff> <ipv4|->" de list-vms.sh. Los dos
-// últimos campos son el estado y la IP; lo anterior es el nombre (VirtualBox puede tener VMs con
-// espacios, que no coinciden con ninguna VM de la app). La IP solo se conserva si es una IPv4
-// válida. Las líneas con otro formato o estado se ignoran.
-func parseVMStates(stdout string) map[string]vmStatus {
-	states := map[string]vmStatus{}
-	for _, line := range strings.Split(stdout, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		n := len(fields)
-		state, rawIP := fields[n-2], fields[n-1]
-		if state != "running" && state != "poweroff" {
-			continue
-		}
-		ip := ""
-		if parsed := net.ParseIP(rawIP); parsed != nil && parsed.To4() != nil && !strings.Contains(rawIP, ":") {
-			ip = rawIP
-		}
-		states[strings.Join(fields[:n-2], " ")] = vmStatus{state: state, ip: ip}
-	}
-	return states
 }
 
 // CreateVM valida la entrada, registra el nombre en SQLite e invoca create-vm.sh con el disco
@@ -175,10 +121,13 @@ func (s *PrepareService) CreateVM(ctx context.Context, in CreateVMInput) (string
 	return fmt.Sprintf("VM %s creada y encendida", in.Name), nil
 }
 
-// StartResult es el resultado de encender una VM: el mensaje de éxito y, si la VM es un servidor o
-// un balanceador y no se pudieron actualizar las IPs del balanceador, una advertencia (REQ-14).
-type StartResult struct {
+// ActionResult es el resultado de una operación que termina bien pero puede dejar un paso
+// posterior pendiente: el mensaje de éxito y, si ese paso falló (actualizar las IPs del balanceador,
+// 004 REQ-14, o los registros DNS, 005 REQ-26), una advertencia. Notice informa algo que no es un
+// fallo (005 REQ-41, REQ-42): el registro DNS que quedó quitado o ausente.
+type ActionResult struct {
 	Message string `json:"message"`
+	Notice  string `json:"notice,omitempty"`
 	Warning string `json:"warning,omitempty"`
 }
 
@@ -186,24 +135,38 @@ type StartResult struct {
 // refresca las IPs internas de ese balanceador (HAProxyService.Refresh): la IP de un servidor puede
 // haber cambiado con el nuevo arranque. Un fallo del refresco no es un fallo de encender la VM: se
 // devuelve como advertencia y queda en el historial de haproxy.
-func (s *PrepareService) StartVM(ctx context.Context, name string) (StartResult, error) {
+func (s *PrepareService) StartVM(ctx context.Context, name string) (ActionResult, error) {
 	if _, err := s.getVM(ctx, name); err != nil {
-		return StartResult{}, err
+		return ActionResult{}, err
 	}
 	if _, err := s.runOperation(ctx, "start_vm", name, "prepare/start-vm.sh", []string{name}, nil); err != nil {
-		return StartResult{}, err
+		return ActionResult{}, err
 	}
-	result := StartResult{Message: fmt.Sprintf("VM %s encendida", name)}
+	result := ActionResult{Message: fmt.Sprintf("VM %s encendida", name)}
 
 	lb, err := s.balancerOf(ctx, name)
 	if err != nil {
-		return StartResult{}, err
+		return ActionResult{}, err
 	}
 	if lb != "" {
 		if _, err := s.haproxy.Refresh(ctx, lb); err != nil {
 			s.logger.Printf("operación=start_vm vm=%s no se pudo refrescar el balanceador %s: %v", name, lb, err)
 			result.Warning = fmt.Sprintf("VM iniciada; no se pudieron actualizar las IPs del balanceador %s, use Actualizar IPs", lb)
 		}
+	}
+
+	// REQ-26, REQ-27: el servidor DNS actualiza todos los registros; otra VM, solo el suyo.
+	isDNS, err := s.dns.IsDNSServer(ctx, name)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	refresh := s.dns.RefreshVM
+	if isDNS {
+		refresh = func(ctx context.Context, _ string) error { return s.dns.RefreshAll(ctx) }
+	}
+	if err := refresh(ctx, name); err != nil {
+		s.logger.Printf("operación=start_vm vm=%s no se pudo actualizar el registro DNS: %v", name, err)
+		result.Warning = joinWarnings(result.Warning, refreshWarning(name))
 	}
 	return result, nil
 }
@@ -240,32 +203,56 @@ func (s *PrepareService) StopVM(ctx context.Context, name string) (string, error
 //
 // Reglas del módulo 004 (REQ-6, REQ-12): una VM asignada a un balanceador se rechaza con
 // ErrVMIsServer; un balanceador con servidores, con ErrLBHasServers; y un balanceador sin
-// servidores se elimina con delete-lb.sh, que también quita su red interna.
-func (s *PrepareService) DeleteVM(ctx context.Context, name string) (string, error) {
+// servidores se elimina con delete-lb.sh, que también quita su red interna. Un servidor web (005)
+// se elimina con WebService.DeleteWeb, que también borra su tipo, y el servidor DNS con
+// DNSService.DeleteDNS. Después se quita el registro DNS de la VM eliminada; si falla, la
+// eliminación termina bien con la advertencia de 005 REQ-24.
+func (s *PrepareService) DeleteVM(ctx context.Context, name string) (ActionResult, error) {
 	if _, err := s.getVM(ctx, name); err != nil {
-		return "", err
+		return ActionResult{}, err
 	}
 	if _, assigned, err := s.lbs.ServerByVM(ctx, name); err != nil {
-		return "", err
+		return ActionResult{}, err
 	} else if assigned {
-		return "", ErrVMIsServer
+		return ActionResult{}, ErrVMIsServer
 	}
 	if _, err := s.lbs.GetLB(ctx, name); err == nil {
-		msg, err := s.haproxy.DeleteLB(ctx, name)
+		res, err := s.haproxy.DeleteLB(ctx, name)
 		if err != nil {
-			return "", err
+			return ActionResult{}, err
 		}
 		s.keys.Discard(name)
-		return msg, nil
+		return res, nil
 	} else if !errors.Is(err, repository.ErrLBNotFound) {
-		return "", err
+		return ActionResult{}, err
+	}
+	if _, isWeb, err := s.web.webType(ctx, name); err != nil {
+		return ActionResult{}, err
+	} else if isWeb {
+		res, err := s.web.DeleteWeb(ctx, name)
+		if err != nil {
+			return ActionResult{}, err
+		}
+		s.keys.Discard(name)
+		return res, nil
+	}
+	if isDNS, err := s.dns.IsDNSServer(ctx, name); err != nil {
+		return ActionResult{}, err
+	} else if isDNS {
+		msg, err := s.dns.DeleteDNS(ctx)
+		if err != nil {
+			return ActionResult{}, err
+		}
+		s.keys.Discard(name)
+		return ActionResult{Message: msg}, nil
 	}
 	deleteRow := func(ctx context.Context) error {
 		s.keys.Discard(name)
 		return s.vms.Delete(ctx, name)
 	}
 	if _, err := s.runOperation(ctx, "delete_vm", name, "prepare/delete-vm.sh", []string{name}, deleteRow); err != nil {
-		return "", err
+		return ActionResult{}, err
 	}
-	return fmt.Sprintf("VM %s eliminada junto con su disco", name), nil
+	return ActionResult{Message: fmt.Sprintf("VM %s eliminada junto con su disco", name),
+		Warning: s.dns.AfterVMDeleted(ctx, name)}, nil
 }

@@ -5,7 +5,7 @@ import type { Vm } from "@/features/prepare/types";
 
 import { UserTable } from "./UserTable";
 
-const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" };
+const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" };
 const USERS = [
   { username: "ana", uid: 1001, sudo: true, ssh_key: true },
   { username: "luis", uid: 1002, sudo: false, ssh_key: false },

@@ -52,6 +52,8 @@ type testServer struct {
 	*httptest.Server
 	vms *repository.VMRepository
 	lbs *repository.LBRepository
+	web *repository.WebRepository
+	dns *repository.DNSRepository
 }
 
 // newTestServer arma el handler con el servicio real, SQLite temporal y el runner falso.
@@ -62,7 +64,7 @@ func newTestServer(t *testing.T, runner service.ScriptRunner) (*httptest.Server,
 }
 
 // newTestServerWithLBs es newTestServer más el repositorio de balanceadores; registra también las
-// rutas de /api/haproxy.
+// rutas de /api/haproxy, de /api/web y de /api/dns.
 func newTestServerWithLBs(t *testing.T, runner service.ScriptRunner) testServer {
 	t.Helper()
 	db, err := repository.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -76,17 +78,26 @@ func newTestServerWithLBs(t *testing.T, runner service.ScriptRunner) testServer 
 	history := repository.NewHistoryRepository(db)
 	locks := &service.VMLocks{}
 	logger := log.New(io.Discard, "", 0)
+	webRepo, dnsRepo := repository.NewWebRepository(db), repository.NewDNSRepository(db)
+	dns := service.NewDNSService(service.DNSConfig{BaseDisk: "/vms/dns-base.vdi", BridgeAdapter: "eth0",
+		IP: "192.168.1.53/24", Gateway: "192.168.1.1", Domain: "stratus.lan", Forwarders: "1.1.1.1,8.8.8.8"},
+		runner, vms, lbs, webRepo, dnsRepo, history, locks, logger)
 	haproxy := service.NewHAProxyService(service.HAProxyConfig{BaseDisk: "/vms/haproxy-base.vdi", BridgeAdapter: "eth0"},
-		runner, vms, lbs, history, locks, logger)
+		runner, vms, lbs, dnsRepo, history, locks, dns, logger)
 	cfg := service.Config{BaseDisk: "/vms/base.vdi", BridgeAdapter: "eth0", KeyTTL: 10 * time.Minute}
-	svc := service.NewPrepareService(cfg, runner, vms, lbs, history, locks, haproxy, logger)
+	web := service.NewWebService(service.WebConfig{ApacheBaseDisk: "/vms/apache-base.vdi",
+		NginxBaseDisk: "/vms/nginx-base.vdi", BridgeAdapter: "eth0", Domain: "stratus.lan", MaxArchiveBytes: maxTestArchive},
+		runner, vms, lbs, webRepo, dnsRepo, history, locks, dns, logger)
+	svc := service.NewPrepareService(cfg, runner, vms, lbs, history, locks, haproxy, web, dns, logger)
 
 	mux := http.NewServeMux()
 	RegisterPrepare(mux, svc)
 	RegisterHAProxy(mux, haproxy)
+	RegisterWeb(mux, web)
+	RegisterDNS(mux, dns)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return testServer{Server: srv, vms: vms, lbs: lbs}
+	return testServer{Server: srv, vms: vms, lbs: lbs, web: webRepo, dns: dnsRepo}
 }
 
 func reserve(t *testing.T, vms *repository.VMRepository, name string) {
@@ -162,7 +173,7 @@ func TestAC3_GetVMsReturnsStates(t *testing.T) {
 	}
 	first, _ := list[0].(map[string]any)
 	want := map[string]any{"name": "vm1", "state": "running", "ip": "192.168.1.50", "user_key_generated": false,
-		"role": "vm", "lb": "", "lb_ip": ""}
+		"role": "vm", "lb": "", "lb_ip": "", "kind": ""}
 	if len(first) != len(want) {
 		t.Errorf("vms[0] = %v, se esperaban exactamente los campos %v", first, want)
 	}

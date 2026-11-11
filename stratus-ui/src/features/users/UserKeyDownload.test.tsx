@@ -5,7 +5,7 @@ import type { Vm } from "@/features/prepare/types";
 
 import { UserKeyDownload } from "./UserKeyDownload";
 
-const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" };
+const vm1: Vm = { name: "vm1", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" };
 const KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nclave-de-prueba\n-----END OPENSSH PRIVATE KEY-----\n";
 const UNAVAILABLE = "La llave ya no está disponible; elimine y vuelva a crear el usuario para obtener una nueva";
 
@@ -53,7 +53,7 @@ describe("UserKeyDownload", () => {
   });
 
   it("AC-27 usage message shows the ssh -J command for a server behind a load balancer", () => {
-    const server: Vm = { ...vm1, name: "web-a", ip: "10.10.1.11", role: "server", lb: "lb1", lb_ip: "192.168.1.60" };
+    const server: Vm = { ...vm1, name: "web-a", ip: "10.10.1.11", role: "server", lb: "lb1", lb_ip: "192.168.1.60", kind: "" };
     render(<UserKeyDownload vm={server} username="ana" />);
 
     const usage = screen.getByText("Uso correcto de la llave privada").closest('[data-slot="alert"]');

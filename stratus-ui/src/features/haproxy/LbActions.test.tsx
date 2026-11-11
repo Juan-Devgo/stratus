@@ -112,4 +112,19 @@ describe("LbActions", () => {
     expect(screen.getByRole("button", { name: /Actualizar IPs/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Eliminar" })).toBeDisabled();
   });
+
+  it("AC-34 delete shows the warning when the DNS record could not be removed", async () => {
+    const warning = "VM eliminada; no se pudo quitar su registro DNS, use Actualizar registros";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(200, { message: "Balanceador lb1 eliminado junto con su red interna", warning }),
+    );
+    const user = userEvent.setup();
+    render(<LbActions lb={lb1} onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Eliminar" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText("Balanceador lb1 eliminado junto con su red interna")).toBeInTheDocument();
+    expect(screen.getByText(warning)).toBeInTheDocument();
+  });
 });

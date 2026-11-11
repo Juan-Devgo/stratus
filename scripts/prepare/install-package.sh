@@ -4,13 +4,15 @@
 # el puerto del frontend de HAProxy.
 #
 # Uso:
-#   install-package.sh [--jump <lb>] [--frontend <port>] <vm_name> <package>
+#   install-package.sh [--jump <lb>] [--frontend <port>] [--role <rol>] <vm_name> <package>
 #
 # Argumentos:
 #   --jump <lb>  (opcional, siempre primero) balanceador por el que se llega a la VM cuando es un
 #                servidor asignado a él (004); el backend lo agrega
 #   --frontend <port>  (opcional, tras --jump) puerto del frontend de HAProxy cuando la VM es un
 #                balanceador (004); el backend lo agrega, 1-65535 y distinto de 22
+#   --role <rol>  (opcional, tras --frontend) web-apache, web-nginx o dns cuando la VM es un
+#                servidor web o el servidor DNS (005); el backend lo agrega
 #   vm_name  nombre de la VM, ^[a-z0-9][a-z0-9-]{0,31}$
 #   package  nombre del paquete Debian, ^[a-z0-9][a-z0-9+.-]{1,62}$
 #
@@ -40,10 +42,14 @@ set -euo pipefail
 #     si falta o no cumple, salir con 2.
 #     Después de --jump puede ir "--frontend <port>" (REQ-5): el backend lo agrega cuando vm_name
 #     es un balanceador. Debe ser un puerto de 1 a 65535 distinto de 22; si no, salir con 2.
+#     Después puede ir "--role <rol>" (005): web-apache, web-nginx o dns, cuando vm_name es un
+#     servidor web o el servidor DNS. Otro valor sale con 2. role_rules fija sus reglas.
 # 1.1 Exigir exactamente 2 argumentos; si no, imprimir el uso en stderr y salir con 2.
 # 1.2 Validar vm_name contra ^[a-z0-9][a-z0-9-]{0,31}$; si no coincide, salir con 2.
 # 1.3 Validar package contra ^[a-z0-9][a-z0-9+.-]{1,62}$ (rechaza vacío, espacios y ";");
 #     si no coincide, salir con 2.
+# 1.4 Con --role web-apache o web-nginx, instalar el otro servidor web sale con 2 y el texto de
+#     role_rules (005 REQ-7; el backend ya lo rechaza, esta es la segunda barrera).
 # Ninguna validación fallida debe llamar a VBoxManage ni a ssh.
 
 fail() {
@@ -69,8 +75,49 @@ if [[ "${1-}" == --frontend ]]; then
   shift 2
 fi
 
+# role_rules <rol>: reglas del rol que el backend pasa con --role (005 REQ-7, REQ-18). Deja en
+# role_protected el paquete que no se puede eliminar, en role_conflict el que no se puede instalar
+# (vacío si no hay), en role_ports los puertos extra de ufw y en los *_msg los textos.
+role_rules() {
+  role_conflict=""
+  case "$1" in
+    web-apache)
+      role_protected=apache2
+      role_conflict=nginx
+      role_ports=(80/tcp)
+      remove_msg="No se puede eliminar apache2: el servidor web lo usa"
+      install_msg="No se puede instalar nginx: el servidor web usa apache2"
+      ;;
+    web-nginx)
+      role_protected=nginx
+      role_conflict=apache2
+      role_ports=(80/tcp)
+      remove_msg="No se puede eliminar nginx: el servidor web lo usa"
+      install_msg="No se puede instalar apache2: el servidor web usa nginx"
+      ;;
+    dns)
+      role_protected=bind9
+      role_ports=(53/tcp 53/udp)
+      remove_msg="No se puede eliminar bind9: el servidor DNS lo usa"
+      ;;
+  esac
+}
+
+role=""
+role_protected=""
+role_conflict=""
+role_ports=()
+if [[ "${1-}" == --role ]]; then
+  if [[ ! "${2-}" =~ ^(web-apache|web-nginx|dns)$ ]]; then
+    fail 2 '--role inválido: debe ser web-apache, web-nginx o dns'
+  fi
+  role="$2"
+  role_rules "$role"
+  shift 2
+fi
+
 if (($# != 2)); then
-  fail 2 "Uso: install-package.sh [--jump <lb>] [--frontend <port>] <vm_name> <package>"
+  fail 2 "Uso: install-package.sh [--jump <lb>] [--frontend <port>] [--role <rol>] <vm_name> <package>"
 fi
 vm_name="$1"
 package="$2"
@@ -81,6 +128,10 @@ fi
 
 if [[ ! "$package" =~ ^[a-z0-9][a-z0-9+.-]{1,62}$ ]]; then
   fail 2 'package inválido: debe cumplir ^[a-z0-9][a-z0-9+.-]{1,62}$'
+fi
+
+if [[ -n "$role_conflict" && "$package" == "$role_conflict" ]]; then
+  fail 2 "$install_msg"
 fi
 
 # == 2. Preparar la ejecución en la VM ==
@@ -132,13 +183,18 @@ guest 5 env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package"
 #     no pierda el acceso por SSH; la regla repetida no cambia nada (idempotente).
 # 4.3 Con --frontend, también "vm_exec ... ufw allow <port>/tcp": el balanceador no debe quedar
 #     sin su puerto al activar ufw (REQ-5).
-# 4.4 Si falla, salir con 5.
+# 4.4 Con --role, también los puertos del rol: 80/tcp en un servidor web, 53/tcp y 53/udp en el
+#     servidor DNS (005 REQ-7, REQ-18).
+# 4.5 Si falla, salir con 5.
 
 if [[ "$package" == ufw ]]; then
   guest 5 ufw allow 22/tcp
   if [[ -n "$frontend_port" ]]; then
     guest 5 ufw allow "$frontend_port/tcp"
   fi
+  for port in "${role_ports[@]}"; do
+    guest 5 ufw allow "$port"
+  done
 fi
 
 # == 5. Resultado ==

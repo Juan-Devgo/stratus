@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"stratus-srv/internal/repository"
 )
 
 func TestAC6_InstallRemoveInvokeScriptWithPackage(t *testing.T) {
@@ -204,6 +206,113 @@ func TestAC29_PackageOpsOnServerPassJump(t *testing.T) {
 		t.Errorf("install argv = %q, se esperaba %q", got, want)
 	}
 	if got, want := runner.callsTo("prepare/remove-package.sh")[0].Args, []string{"--jump", "lb1", "web-a", "haproxy"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("remove argv = %q, se esperaba %q", got, want)
+	}
+}
+
+// AC-9: en un servidor Nginx, quitar nginx o instalar apache2 se rechaza con el texto de la
+// especificación sin llamar al script, y los paquetes llevan --role web-nginx (ufw permite 80/tcp).
+func TestAC9_PackageRulesOnWebServer(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newWebEnv(t, runner)
+	env.registerWeb(t, "web-a", WebTypeNginx)
+	env.registerWeb(t, "web-b", WebTypeApache)
+	ctx := context.Background()
+
+	blocked := []struct {
+		vm, pkg string
+		remove  bool
+		want    string
+	}{
+		{"web-a", "nginx", true, "No se puede eliminar nginx: el servidor web lo usa"},
+		{"web-a", "apache2", false, "No se puede instalar apache2: el servidor web usa nginx"},
+		{"web-b", "apache2", true, "No se puede eliminar apache2: el servidor web lo usa"},
+		{"web-b", "nginx", false, "No se puede instalar nginx: el servidor web usa apache2"},
+	}
+	for _, tt := range blocked {
+		var err error
+		if tt.remove {
+			_, err = env.prepare.RemovePackage(ctx, tt.vm, tt.pkg)
+		} else {
+			_, err = env.prepare.InstallPackage(ctx, tt.vm, tt.pkg)
+		}
+		var blockedErr *PackageBlockedError
+		if !errors.As(err, &blockedErr) || err.Error() != tt.want || !errors.Is(err, ErrPackageBlocked) {
+			t.Errorf("%s %s: err = %v, se esperaba %q", tt.vm, tt.pkg, err, tt.want)
+		}
+	}
+	if n := runner.callCount(); n != 0 {
+		t.Fatalf("el runner se llamó %d veces, se esperaban 0", n)
+	}
+
+	if _, err := env.prepare.InstallPackage(ctx, "web-a", "ufw"); err != nil {
+		t.Fatalf("InstallPackage(ufw): %v", err)
+	}
+	if got, want := runner.callsTo("prepare/install-package.sh")[0].Args, []string{"--role", "web-nginx", "web-a", "ufw"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("install argv = %q, se esperaba %q", got, want)
+	}
+	if _, err := env.prepare.RemovePackage(ctx, "web-b", "curl"); err != nil {
+		t.Fatalf("RemovePackage(curl): %v", err)
+	}
+	if got, want := runner.callsTo("prepare/remove-package.sh")[0].Args, []string{"--role", "web-apache", "web-b", "curl"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("remove argv = %q, se esperaba %q", got, want)
+	}
+}
+
+// AC-9: un servidor web asignado a un balanceador lleva --jump antes de --role.
+func TestAC9_PackageOnAssignedWebServerOrder(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newWebEnv(t, runner)
+	env.registerWeb(t, "web-a", WebTypeNginx)
+	ctx := context.Background()
+	if _, err := env.vms.Insert(ctx, "lb1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.lbs.InsertLB(ctx, repository.LoadBalancer{Name: "lb1", Subnet: 1, FrontendPort: 80}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.lbs.InsertServer(ctx, repository.LBServer{LB: "lb1", Name: "server1", VM: "web-a", Port: 80,
+		LastIP: "10.10.1.11", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := env.prepare.InstallPackage(ctx, "web-a", "curl"); err != nil {
+		t.Fatalf("InstallPackage: %v", err)
+	}
+	want := []string{"--jump", "lb1", "--role", "web-nginx", "web-a", "curl"}
+	if got := runner.callsTo("prepare/install-package.sh")[0].Args; !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %q, se esperaba %q", got, want)
+	}
+}
+
+// AC-28: en el servidor DNS, quitar bind9 se rechaza sin llamar al script, y los demás paquetes van
+// con "--role dns" para que ufw permita también 53/tcp y 53/udp.
+func TestAC28_DNSServerRulesPackages(t *testing.T) {
+	runner := &fakeRunner{}
+	env := newDNSEnv(t, runner)
+	env.registerDNS(t, "dns1")
+	ctx := context.Background()
+
+	_, err := env.prepare.RemovePackage(ctx, "dns1", "bind9")
+
+	var blockedErr *PackageBlockedError
+	if !errors.As(err, &blockedErr) || err.Error() != "No se puede eliminar bind9: el servidor DNS lo usa" {
+		t.Errorf("RemovePackage(bind9): err = %v", err)
+	}
+	if n := runner.callCount(); n != 0 {
+		t.Fatalf("el runner se llamó %d veces, se esperaban 0", n)
+	}
+
+	if _, err := env.prepare.InstallPackage(ctx, "dns1", "ufw"); err != nil {
+		t.Fatalf("InstallPackage(ufw): %v", err)
+	}
+	if got, want := runner.callsTo("prepare/install-package.sh")[0].Args, []string{"--role", "dns", "dns1", "ufw"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("install argv = %q, se esperaba %q", got, want)
+	}
+	if _, err := env.prepare.RemovePackage(ctx, "dns1", "curl"); err != nil {
+		t.Fatalf("RemovePackage(curl): %v", err)
+	}
+	if got, want := runner.callsTo("prepare/remove-package.sh")[0].Args, []string{"--role", "dns", "dns1", "curl"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("remove argv = %q, se esperaba %q", got, want)
 	}
 }

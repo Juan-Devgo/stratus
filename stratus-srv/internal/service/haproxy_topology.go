@@ -103,3 +103,26 @@ func validIPv4(text string) bool {
 	ip := net.ParseIP(text)
 	return ip != nil && ip.To4() != nil && !strings.Contains(text, ":")
 }
+
+// lbTopology devuelve, desde SQLite, qué VMs son balanceadores y el balanceador de cada servidor
+// asignado. Lo usan los listados de 001 y de la pantalla DNS para el rol de cada VM.
+func lbTopology(ctx context.Context, lbs *repository.LBRepository) (isLB map[string]bool,
+	serverLB map[string]string, err error) {
+	lbRows, err := lbs.ListLBs(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	isLB = map[string]bool{}
+	serverLB = map[string]string{} // VM asignada -> su balanceador
+	for _, lb := range lbRows {
+		isLB[lb.Name] = true
+		servers, err := lbs.Servers(ctx, lb.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, srv := range servers {
+			serverLB[srv.VM] = lb.Name
+		}
+	}
+	return isLB, serverLB, nil
+}

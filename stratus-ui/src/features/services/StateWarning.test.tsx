@@ -22,4 +22,10 @@ describe("StateWarning", () => {
     rerender(<StateWarning name="api" />);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("AC-21 uses the given hint instead of Estado y Logs", () => {
+    render(<StateWarning name="nginx" state="failed" hint="revise Estado" />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/^El servicio nginx quedó en estado failed; revise Estado$/);
+  });
 });

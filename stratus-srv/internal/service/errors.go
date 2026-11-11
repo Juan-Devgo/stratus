@@ -126,3 +126,43 @@ func (e *LBOffError) Error() string { return e.Message }
 
 // Unwrap permite usar errors.Is(err, ErrLBOff).
 func (e *LBOffError) Unwrap() error { return ErrLBOff }
+
+// Módulos de servidores web y DNS (005).
+var (
+	ErrApacheBaseDiskMissing = errors.New("Disco base de Apache no encontrado")
+	ErrNginxBaseDiskMissing  = errors.New("Disco base de Nginx no encontrado")
+	ErrDNSBaseDiskMissing    = errors.New("Disco base de DNS no encontrado")
+	ErrDNSExists             = errors.New("Ya existe un servidor DNS")
+	ErrNoDNSServer           = errors.New("No hay servidor DNS")
+	ErrDNSConfigIncomplete   = errors.New("Configuración de DNS incompleta")
+	ErrDNSIPInUse            = errors.New("La IP del servidor DNS ya está en uso")
+	ErrDNSOff                = errors.New("El servidor DNS está apagado; enciéndalo para cambiar los registros")
+	ErrZoneInvalid           = errors.New("Zona DNS inválida; se mantuvo la anterior")
+	ErrRecordExists          = errors.New("La VM ya tiene un registro DNS")
+	ErrIndexMissing          = errors.New("El archivo debe contener index.html en la raíz")
+	ErrPackageBlocked        = errors.New("paquete protegido")
+	ErrVMNotOnLAN            = errors.New("La VM no tiene una dirección en la LAN")
+	// Leer la zona con el servidor DNS apagado (REQ-49); ErrDNSOff habla de cambiar registros.
+	ErrDNSOffZone = errors.New("El servidor DNS está apagado; enciéndalo para ver la zona")
+)
+
+// ServerRecordError indica que la VM es servidor de un balanceador y por eso no tiene registro
+// propio: se registra el balanceador (REQ-23). LB es el nombre del balanceador.
+type ServerRecordError struct {
+	LB string
+}
+
+func (e *ServerRecordError) Error() string {
+	return "La VM es servidor del balanceador " + e.LB + "; registre el balanceador"
+}
+
+// PackageBlockedError indica que 001 no puede quitar o instalar un paquete en un servidor web o en
+// el servidor DNS (REQ-7, REQ-18). Message es el texto de la especificación, que nombra el paquete.
+type PackageBlockedError struct {
+	Message string
+}
+
+func (e *PackageBlockedError) Error() string { return e.Message }
+
+// Unwrap permite usar errors.Is(err, ErrPackageBlocked).
+func (e *PackageBlockedError) Unwrap() error { return ErrPackageBlocked }

@@ -97,4 +97,41 @@ describe("ServerTable", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("AC-37 assign and remove show the notice: remove tells the VM has no DNS record", async () => {
+    const notice = "web-a no tiene registro DNS; agréguelo desde DNS";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { message: "Servidor web-a quitado de lb1", notice }));
+    const user = userEvent.setup();
+    render(<ServerTable servers={servers} lbOff={false} lb="lb1" onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Quitar web-a" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText("Servidor web-a quitado de lb1")).toBeInTheDocument();
+    expect(screen.getByText("Aviso")).toBeInTheDocument();
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    expect(screen.queryByText("Advertencia")).not.toBeInTheDocument();
+  });
+
+  it("AC-57 remove shows the DNS warning when the record could not be dropped", async () => {
+    const warning = "Operación completada; no se pudo quitar el registro DNS de web-a, use Actualizar registros";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { message: "Servidor web-a quitado de lb1", warning }));
+    const user = userEvent.setup();
+    render(<ServerTable servers={servers} lbOff={false} lb="lb1" onDone={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Quitar web-a" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText(warning)).toBeInTheDocument();
+    expect(screen.getByText("Advertencia")).toBeInTheDocument();
+  });
+});
+
+describe("ServerTable copy buttons", () => {
+  it("AC-63 each internal IP has a copy button", () => {
+    render(<ServerTable servers={servers} lbOff={false} lb="lb1" onDone={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Copiar 10.10.1.11" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copiar 10.10.1.12" })).toBeInTheDocument();
+  });
 });

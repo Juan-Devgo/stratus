@@ -9,10 +9,10 @@ import type { Lb } from "./types";
 const lb1: Lb = { name: "lb1", state: "running", ip: "192.168.1.60", subnet: "10.10.1.0/24", frontend_port: 80, server_count: 0 };
 
 const vms: Vm[] = [
-  { name: "lb1", state: "running", ip: "192.168.1.60", user_key_generated: false, role: "lb", lb: "", lb_ip: "" },
-  { name: "web-a", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
-  { name: "web-b", state: "poweroff", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "" },
-  { name: "web-c", state: "running", ip: "10.10.2.11", user_key_generated: false, role: "server", lb: "lb2", lb_ip: "192.168.1.61" },
+  { name: "lb1", state: "running", ip: "192.168.1.60", user_key_generated: false, role: "lb", lb: "", lb_ip: "", kind: "" },
+  { name: "web-a", state: "running", ip: "192.168.1.50", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
+  { name: "web-b", state: "poweroff", ip: "", user_key_generated: false, role: "vm", lb: "", lb_ip: "", kind: "" },
+  { name: "web-c", state: "running", ip: "10.10.2.11", user_key_generated: false, role: "server", lb: "lb2", lb_ip: "192.168.1.61", kind: "" },
 ];
 
 function jsonResponse(status: number, body: unknown) {
@@ -119,5 +119,41 @@ describe("AssignServerForm", () => {
 
     rerender(<AssignServerForm lb={lb1} vms={vms} onDone={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Asignar" })).toBeDisabled();
+  });
+
+  it("AC-37 assign and remove show the notice: assign tells the record was removed", async () => {
+    const notice = "Registro DNS de web-a quitado: los servidores de un balanceador no se registran";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(201, { message: "Servidor server1 (web-a) asignado a lb1", notice }),
+    );
+    const user = userEvent.setup();
+    render(<AssignServerForm lb={lb1} vms={vms} onDone={vi.fn()} />);
+
+    await pickVm(user, "web-a");
+    await user.click(screen.getByRole("button", { name: "Asignar" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText("Servidor server1 (web-a) asignado a lb1")).toBeInTheDocument();
+    expect(screen.getByText("Aviso")).toBeInTheDocument();
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    expect(screen.queryByText("Advertencia")).not.toBeInTheDocument();
+  });
+
+  it("AC-57 assign shows the DNS warning when the record could not be dropped", async () => {
+    const warning = "Operación completada; no se pudo quitar el registro DNS de web-a, use Actualizar registros";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(201, { message: "Servidor server1 (web-a) asignado a lb1", warning }),
+    );
+    const user = userEvent.setup();
+    render(<AssignServerForm lb={lb1} vms={vms} onDone={vi.fn()} />);
+
+    await pickVm(user, "web-a");
+    await user.click(screen.getByRole("button", { name: "Asignar" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText("Servidor server1 (web-a) asignado a lb1")).toBeInTheDocument();
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(screen.getByText("Advertencia")).toBeInTheDocument();
+    expect(screen.queryByText("Aviso")).not.toBeInTheDocument();
   });
 });

@@ -147,3 +147,38 @@ setup() {
   done
   [ ! -s "$CALLS" ]
 }
+
+# --- --role (005 REQ-7, REQ-18) ---
+
+@test "005 AC-9 remove-package --role web-nginx rechaza nginx y permite apache2" {
+  run --separate-stderr "$SCRIPT" --role web-nginx vm1 nginx
+  [ "$status" -eq 2 ]
+  [ "$stderr" = "No se puede eliminar nginx: el servidor web lo usa" ]
+  [ ! -s "$CALLS" ]
+
+  run "$SCRIPT" --role web-nginx vm1 apache2
+  [ "$status" -eq 0 ]
+  grep -qF -- "apt-get purge -y apache2" "$CALLS"
+}
+
+@test "005 AC-9 remove-package --role web-apache rechaza apache2" {
+  run --separate-stderr "$SCRIPT" --role web-apache vm1 apache2
+  [ "$status" -eq 2 ]
+  [ "$stderr" = "No se puede eliminar apache2: el servidor web lo usa" ]
+  [ ! -s "$CALLS" ]
+}
+
+@test "005 AC-28 remove-package --role dns rechaza bind9" {
+  run --separate-stderr "$SCRIPT" --role dns vm1 bind9
+  [ "$status" -eq 2 ]
+  [ "$stderr" = "No se puede eliminar bind9: el servidor DNS lo usa" ]
+  [ ! -s "$CALLS" ]
+}
+
+@test "005 AC-55 remove-package rechaza un --role fuera de la lista sin llamar a nada" {
+  for role in iis "" web; do
+    run "$SCRIPT" --role "$role" vm1 curl
+    [ "$status" -eq 2 ]
+  done
+  [ ! -s "$CALLS" ]
+}

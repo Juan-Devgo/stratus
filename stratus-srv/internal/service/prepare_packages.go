@@ -11,11 +11,27 @@ const sshServerPackage = "openssh-server"
 // haproxyPackage es el paquete que un balanceador necesita para funcionar (REQ-5).
 const haproxyPackage = "haproxy"
 
+// bindPackage es el paquete que el servidor DNS necesita para funcionar (005 REQ-18).
+const bindPackage = "bind9"
+
+// webPackages son, por tipo de servidor web, el paquete que usa y el del otro tipo (005 REQ-7).
+var webPackages = map[string]struct{ own, other string }{
+	WebTypeApache: {"apache2", "nginx"},
+	WebTypeNginx:  {"nginx", "apache2"},
+}
+
 // InstallPackage instala un paquete con install-package.sh. Instalar openssh-server es una
-// instalación normal: la VM ya tiene el acceso con llave desde su creación (REQ-24).
+// instalación normal: la VM ya tiene el acceso con llave desde su creación (REQ-24). En un servidor
+// web, instalar el paquete del otro tipo se rechaza aquí y también en el script (005 REQ-7).
 func (s *PrepareService) InstallPackage(ctx context.Context, name, pkg string) (string, error) {
 	if err := s.checkPackageVM(ctx, name, pkg); err != nil {
 		return "", err
+	}
+	if typ, isWeb, err := s.web.webType(ctx, name); err != nil {
+		return "", err
+	} else if isWeb && pkg == webPackages[typ].other {
+		return "", &PackageBlockedError{Message: fmt.Sprintf("No se puede instalar %s: el servidor web usa %s",
+			pkg, webPackages[typ].own)}
 	}
 	args, err := s.packageArgs(ctx, name, pkg)
 	if err != nil {
@@ -44,6 +60,20 @@ func (s *PrepareService) RemovePackage(ctx context.Context, name, pkg string) (s
 	if frontend != nil && pkg == haproxyPackage {
 		return "", ErrHAProxyRemovalBlocked
 	}
+	// El servidor web usa su paquete (005 REQ-7): quitarlo se rechaza aquí y también en el script.
+	if typ, isWeb, err := s.web.webType(ctx, name); err != nil {
+		return "", err
+	} else if isWeb && pkg == webPackages[typ].own {
+		return "", &PackageBlockedError{Message: fmt.Sprintf("No se puede eliminar %s: el servidor web lo usa", pkg)}
+	}
+	// El servidor DNS usa bind9 (005 REQ-18): igual que el paquete del servidor web.
+	if pkg == bindPackage {
+		if isDNS, err := s.dns.IsDNSServer(ctx, name); err != nil {
+			return "", err
+		} else if isDNS {
+			return "", &PackageBlockedError{Message: "No se puede eliminar bind9: el servidor DNS lo usa"}
+		}
+	}
 	args, err := s.packageArgs(ctx, name, pkg)
 	if err != nil {
 		return "", err
@@ -63,16 +93,33 @@ func (s *PrepareService) checkPackageVM(ctx context.Context, name, pkg string) e
 	return err
 }
 
-// packageArgs arma el argv de install-package.sh y remove-package.sh: en un servidor lleva
-// "--jump <lb>" delante de la VM, y en un balanceador "--frontend <puerto>" (REQ-5, REQ-19).
+// packageArgs arma el argv de install-package.sh y remove-package.sh, con las opciones en el orden
+// del script: "--jump <lb>" en un servidor asignado, "--frontend <puerto>" en un balanceador y
+// "--role web-apache|web-nginx|dns" en un servidor web o en el servidor DNS, delante de la VM (REQ-5,
+// REQ-19, 005 REQ-7, REQ-18).
 func (s *PrepareService) packageArgs(ctx context.Context, name, pkg string) ([]string, error) {
 	frontend, err := s.lbFrontendArgs(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	args, _, err := targetArgs(ctx, s.lbs, name, pkg)
+	target, lb, err := targetArgs(ctx, s.lbs, name, pkg)
 	if err != nil {
 		return nil, err
 	}
-	return append(frontend, args...), nil
+	var args []string
+	if lb != "" {
+		args, target = []string{target[0], target[1]}, target[2:] // "--jump <lb>"
+	}
+	args = append(args, frontend...)
+	if typ, isWeb, err := s.web.webType(ctx, name); err != nil {
+		return nil, err
+	} else if isWeb {
+		args = append(args, "--role", "web-"+typ)
+	}
+	if isDNS, err := s.dns.IsDNSServer(ctx, name); err != nil {
+		return nil, err
+	} else if isDNS {
+		args = append(args, "--role", "dns")
+	}
+	return append(args, target...), nil
 }

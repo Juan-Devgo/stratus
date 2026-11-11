@@ -9,7 +9,8 @@ import (
 )
 
 // schema crea las tablas si no existen; se ejecuta en cada arranque. Las tablas load_balancers y
-// lb_servers (004) se agregan sin migración. Un stratus.db anterior al
+// lb_servers (004), y web_servers, dns_server y dns_records (005) se agregan sin migración. La tabla
+// dns_resolvers (US-7, quitada el 2026-11-11) se borra si existe. Un stratus.db anterior al
 // 2026-10-22 tiene otro esquema (ssh_port, ssh_enabled): se borra a mano, no hay migración.
 const schema = `
 CREATE TABLE IF NOT EXISTS vms (
@@ -43,6 +44,19 @@ CREATE TABLE IF NOT EXISTS lb_servers (
   enabled INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (lb, name)
 );
+CREATE TABLE IF NOT EXISTS web_servers (
+  name TEXT PRIMARY KEY,                 -- también es una fila de vms
+  type TEXT NOT NULL CHECK (type IN ('apache','nginx'))
+);
+CREATE TABLE IF NOT EXISTS dns_server (
+  id INTEGER PRIMARY KEY CHECK (id = 1), -- un solo servidor DNS
+  name TEXT NOT NULL UNIQUE              -- también es una fila de vms
+);
+CREATE TABLE IF NOT EXISTS dns_records (
+  vm TEXT PRIMARY KEY,                   -- un registro A por VM
+  ip TEXT NOT NULL
+);
+DROP TABLE IF EXISTS dns_resolvers;     -- tabla de US-7, quitada el 2026-11-11
 `
 
 // Open abre (o crea) el archivo SQLite en path y crea el esquema.

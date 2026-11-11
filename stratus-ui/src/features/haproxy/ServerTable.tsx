@@ -15,6 +15,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { IpCell } from "@/components/IpCell";
+import { NoticeAlert } from "@/components/NoticeAlert";
+import { WarningAlert } from "@/components/WarningAlert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useOperation } from "@/features/prepare/useOperation";
 
@@ -31,11 +34,20 @@ export function ServerTable({ servers, lbOff, lb, onDone }: Props) {
   const [removing, setRemoving] = useState<string | null>(null);
   // VM que se está quitando, para mostrar el Spinner en su botón.
   const [active, setActive] = useState<string | null>(null);
+  const [warning, setWarning] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function confirm(vm: string) {
     setRemoving(null);
     setActive(vm);
-    await run(() => removeServer(lb, vm));
+    setWarning("");
+    setNotice("");
+    await run(async () => {
+      const res = await removeServer(lb, vm);
+      setWarning(res.warning ?? "");
+      setNotice(res.notice ?? "");
+      return res.message;
+    });
     setActive(null);
     onDone();
   }
@@ -70,7 +82,9 @@ export function ServerTable({ servers, lbOff, lb, onDone }: Props) {
               <TableRow key={server.name}>
                 <TableCell>{server.name}</TableCell>
                 <TableCell>{server.vm}</TableCell>
-                <TableCell>{server.ip}</TableCell>
+                <TableCell>
+                  <IpCell ip={server.ip} />
+                </TableCell>
                 <TableCell>{server.port}</TableCell>
                 <TableCell>{server.state}</TableCell>
                 <TableCell>
@@ -112,6 +126,8 @@ export function ServerTable({ servers, lbOff, lb, onDone }: Props) {
         </AlertDialogContent>
       </AlertDialog>
       <OperationResult result={result} />
+      <NoticeAlert notice={notice} />
+      <WarningAlert warning={warning} />
     </div>
   );
 }

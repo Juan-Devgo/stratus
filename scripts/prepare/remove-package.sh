@@ -3,13 +3,15 @@
 # backend contra la IP de la VM. openssh-server nunca se elimina: el backend lo usa para conectarse.
 #
 # Uso:
-#   remove-package.sh [--jump <lb>] [--frontend <port>] <vm_name> <package>
+#   remove-package.sh [--jump <lb>] [--frontend <port>] [--role <rol>] <vm_name> <package>
 #
 # Argumentos:
 #   --jump <lb>  (opcional, siempre primero) balanceador por el que se llega a la VM cuando es un
 #                servidor asignado a él (004); el backend lo agrega
 #   --frontend <port>  (opcional, tras --jump) puerto del frontend de HAProxy cuando la VM es un
 #                balanceador (004); el backend lo agrega, 1-65535 y distinto de 22
+#   --role <rol>  (opcional, tras --frontend) web-apache, web-nginx o dns cuando la VM es un
+#                servidor web o el servidor DNS (005); el backend lo agrega
 #   vm_name  nombre de la VM, ^[a-z0-9][a-z0-9-]{0,31}$
 #   package  nombre del paquete Debian, ^[a-z0-9][a-z0-9+.-]{1,62}$; "openssh-server" se rechaza
 #
@@ -39,6 +41,8 @@ set -euo pipefail
 #     si falta o no cumple, salir con 2.
 #     Después de --jump puede ir "--frontend <port>" (REQ-5): el backend lo agrega cuando vm_name
 #     es un balanceador. Debe ser un puerto de 1 a 65535 distinto de 22; si no, salir con 2.
+#     Después puede ir "--role <rol>" (005): web-apache, web-nginx o dns, cuando vm_name es un
+#     servidor web o el servidor DNS. Otro valor sale con 2. role_rules fija sus reglas.
 # 1.1 Exigir exactamente 2 argumentos; si no, imprimir el uso en stderr y salir con 2.
 # 1.2 Validar vm_name contra ^[a-z0-9][a-z0-9-]{0,31}$; si no coincide, salir con 2.
 # 1.3 Validar package contra ^[a-z0-9][a-z0-9+.-]{1,62}$ (rechaza vacío, espacios y ";");
@@ -48,6 +52,8 @@ set -euo pipefail
 #     barrera cuando el script se usa solo). Aplica a toda VM.
 # 1.5 Si se pasó --frontend (la VM es un balanceador) y package es haproxy, imprimir "No se puede
 #     eliminar haproxy: el balanceador lo usa" y salir con 2 (REQ-5; el backend ya lo rechaza).
+# 1.6 Con --role, eliminar el paquete protegido del rol (apache2, nginx o bind9) sale con 2 y el
+#     texto de role_rules (005 REQ-7, REQ-18).
 # Ninguna validación fallida debe llamar a VBoxManage ni a ssh.
 
 fail() {
@@ -73,8 +79,49 @@ if [[ "${1-}" == --frontend ]]; then
   shift 2
 fi
 
+# role_rules <rol>: reglas del rol que el backend pasa con --role (005 REQ-7, REQ-18). Deja en
+# role_protected el paquete que no se puede eliminar, en role_conflict el que no se puede instalar
+# (vacío si no hay), en role_ports los puertos extra de ufw y en los *_msg los textos.
+role_rules() {
+  role_conflict=""
+  case "$1" in
+    web-apache)
+      role_protected=apache2
+      role_conflict=nginx
+      role_ports=(80/tcp)
+      remove_msg="No se puede eliminar apache2: el servidor web lo usa"
+      install_msg="No se puede instalar nginx: el servidor web usa apache2"
+      ;;
+    web-nginx)
+      role_protected=nginx
+      role_conflict=apache2
+      role_ports=(80/tcp)
+      remove_msg="No se puede eliminar nginx: el servidor web lo usa"
+      install_msg="No se puede instalar apache2: el servidor web usa nginx"
+      ;;
+    dns)
+      role_protected=bind9
+      role_ports=(53/tcp 53/udp)
+      remove_msg="No se puede eliminar bind9: el servidor DNS lo usa"
+      ;;
+  esac
+}
+
+role=""
+role_protected=""
+role_conflict=""
+role_ports=()
+if [[ "${1-}" == --role ]]; then
+  if [[ ! "${2-}" =~ ^(web-apache|web-nginx|dns)$ ]]; then
+    fail 2 '--role inválido: debe ser web-apache, web-nginx o dns'
+  fi
+  role="$2"
+  role_rules "$role"
+  shift 2
+fi
+
 if (($# != 2)); then
-  fail 2 "Uso: remove-package.sh [--jump <lb>] [--frontend <port>] <vm_name> <package>"
+  fail 2 "Uso: remove-package.sh [--jump <lb>] [--frontend <port>] [--role <rol>] <vm_name> <package>"
 fi
 vm_name="$1"
 package="$2"
@@ -93,6 +140,10 @@ fi
 
 if [[ -n "$frontend_port" && "$package" == haproxy ]]; then
   fail 2 "No se puede eliminar haproxy: el balanceador lo usa"
+fi
+
+if [[ -n "$role_protected" && "$package" == "$role_protected" ]]; then
+  fail 2 "$remove_msg"
 fi
 
 # == 2. Preparar la ejecución en la VM ==

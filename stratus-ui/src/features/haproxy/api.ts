@@ -1,4 +1,4 @@
-import { operation, request } from "@/features/prepare/api";
+import { type ActionResult, operation, request } from "@/features/prepare/api";
 import type { OperationRow } from "@/features/prepare/types";
 import type { CreateVmInput } from "@/features/prepare/validation";
 
@@ -18,8 +18,10 @@ export function createLb(input: CreateVmInput): Promise<string> {
   return operation("POST", "/api/haproxy/lbs", input);
 }
 
-export function deleteLb(lb: string): Promise<string> {
-  return operation("DELETE", lbPath(lb));
+// Eliminar, asignar y quitar devuelven además la advertencia si no se pudo actualizar el registro DNS
+// de la VM (005 REQ-24, REQ-26).
+export function deleteLb(lb: string): Promise<ActionResult> {
+  return request("DELETE", lbPath(lb));
 }
 
 export function saveFrontend(lb: string, port: number): Promise<string> {
@@ -43,12 +45,12 @@ export async function getStatus(lb: string): Promise<Record<string, string>> {
   return data.states;
 }
 
-export function assignServer(lb: string, vm: string, port: number): Promise<string> {
-  return operation("POST", lbPath(lb, "/servers"), { vm, port });
+export function assignServer(lb: string, vm: string, port: number): Promise<ActionResult> {
+  return request("POST", lbPath(lb, "/servers"), { vm, port });
 }
 
-export function removeServer(lb: string, vm: string): Promise<string> {
-  return operation("DELETE", lbPath(lb, `/servers/${encodeURIComponent(vm)}`));
+export function removeServer(lb: string, vm: string): Promise<ActionResult> {
+  return request("DELETE", lbPath(lb, `/servers/${encodeURIComponent(vm)}`));
 }
 
 // Últimas 50 operaciones del módulo, la más reciente primero (REQ-24).

@@ -215,11 +215,11 @@ func TestAC10_DeleteLBRejectsWithServers(t *testing.T) {
 	if err := env.lbs.DeleteServer(ctx, "lb1", "web-a"); err != nil {
 		t.Fatal(err)
 	}
-	msg, err := env.svc.DeleteLB(ctx, "lb1")
+	res, err := env.svc.DeleteLB(ctx, "lb1")
 	if err != nil {
 		t.Fatalf("DeleteLB sin servidores: %v", err)
 	}
-	if msg != "Balanceador lb1 eliminado junto con su red interna" {
+	if msg := res.Message; msg != "Balanceador lb1 eliminado junto con su red interna" {
 		t.Errorf("mensaje = %q", msg)
 	}
 	calls := runner.callsTo("haproxy/delete-lb.sh")
@@ -337,5 +337,27 @@ func TestHAProxyHistoryOnlyOwnModule(t *testing.T) {
 	}
 	if len(ops) != 1 || ops[0].Module != "haproxy" {
 		t.Errorf("History = %+v, se esperaba una fila del módulo haproxy", ops)
+	}
+}
+
+// AC-34: eliminar un balanceador con registro DNS quita también su registro.
+func TestAC34_DeleteLBRemovesRecord(t *testing.T) {
+	env, runner := newRecordsEnv(t)
+	ctx := context.Background()
+	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "lb1", IP: "192.168.1.41"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := env.haproxy.DeleteLB(ctx, "lb1")
+
+	if err != nil || res.Warning != "" {
+		t.Fatalf("DeleteLB = %+v, %v", res, err)
+	}
+	calls := runner.callsTo("dns/remove-record.sh")
+	if len(calls) != 1 || calls[0].Args[2] != "192.168.1.53/24" || calls[0].Args[3] != "lb1" {
+		t.Errorf("remove-record.sh = %+v, se esperaba quitar lb1 con 192.168.1.53/24", calls)
+	}
+	if _, has, _ := env.dns.Record(ctx, "lb1"); has {
+		t.Error("el registro de lb1 debía borrarse")
 	}
 }

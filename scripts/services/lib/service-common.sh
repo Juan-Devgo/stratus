@@ -26,7 +26,7 @@
 #   validate_name|validate_description|validate_executable|validate_args|validate_restart|
 #   validate_restart_sec <valor>         devuelven 1 con el motivo en stderr; el script sale con 2
 #   validate_env_file <archivo>          idem, para el archivo de variables
-#   check_archive <archivo> <ejecutable> solo en el host: devuelve 10 u 11
+#   check_archive <archivo> <ejecutable> [mensaje]  solo en el host: devuelve 10 u 11
 #   parse_jump "$@"                      lee "--jump <lb>" si va primero: deja jump_lb y jump_shift
 #   guest <código> <comando...>          vm_exec; 2, 4, 7 y 12 pasan tal cual, otro fallo sale con <código>
 #   require_managed                      sale con 6 si la unidad no tiene la marca de Stratus
@@ -191,7 +191,7 @@ validate_env_file() {
   done <"$file"
 }
 
-# == 3. check_archive <archivo> <ejecutable> ==
+# == 3. check_archive <archivo> <ejecutable> [mensaje_faltante] ==
 # Revisa en el host, antes de tocar la VM, que el .tar.gz sea seguro de extraer (REQ-5, REQ-6).
 # 3.1 "gzip -t" debe aceptar el archivo.
 # 3.2 Dos listados, "tar -tzf" (nombres) y "tar -tvzf" (el primer carácter es el tipo), deben
@@ -200,10 +200,12 @@ validate_env_file() {
 #     simbólicos o duros, dispositivos, tuberías ni otros tipos.
 # 3.4 Ningún nombre empieza con "/" ni tiene un segmento "..".
 # 3.5 El ejecutable, sin el prefijo "./", debe ser una entrada "-".
+# 3.6 Con un tercer argumento (005: index.html de una página), ese es el mensaje del código 11.
 # Devuelve 10 (mensaje "Archivo comprimido inválido") o 11 (mensaje del ejecutable); 0 si todo está bien.
 
 check_archive() {
-  local file="$1" exe="$2" names verbose i entry segment found=no
+  local file="$1" exe="$2" missing_msg="${3:-El ejecutable no existe en el directorio de la aplicación}"
+  local names verbose i entry segment found=no
   local -a name_lines type_lines segments
   local invalid="Archivo comprimido inválido"
 
@@ -255,7 +257,7 @@ check_archive() {
   done
 
   if [[ "$found" != yes ]]; then
-    echo "El ejecutable no existe en el directorio de la aplicación" >&2
+    echo "$missing_msg" >&2
     return 11
   fi
 }

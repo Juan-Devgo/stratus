@@ -40,42 +40,76 @@ func (s *HAProxyService) ListServers(ctx context.Context, lb string) ([]ServerVi
 
 // AssignServer asigna la VM al balanceador con assign-server.sh (REQ-8 a REQ-10). Antes de llamar al
 // script comprueba, sin cambiar nada: puerto válido, balanceador y VM registrados, que la VM no sea
-// un balanceador ni servidor de ningún balanceador (ErrVMNotAssignable) y que el balanceador tenga
+// un balanceador, ni servidor de ningún balanceador, ni el servidor DNS (ErrVMNotAssignable, 005
+// REQ-19) y que el balanceador tenga
 // menos de 10 servidores (ErrLBFull). Toma el bloqueo del balanceador y de la VM a la vez (REQ-21).
+// Liberados los bloqueos, quita el registro DNS de la VM (005 REQ-41): aviso si se quitó, advertencia
+// si la zona no cambió. Si el script falló, refresca el registro de la VM (005 REQ-26) y devuelve
+// el error del asignar.
 // Si el script termina bien, guarda la fila con la IP que imprime ("ip=<ip>") antes de soltarlos.
-func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port int) (string, error) {
+func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port int) (ActionResult, error) {
+	msg, ran, err := s.assignServer(ctx, lb, vm, port)
+	if err != nil {
+		if ran {
+			// El asignar pudo dejar la VM en el puente con otra dirección
+			if rerr := s.dns.RefreshVM(ctx, vm); rerr != nil {
+				s.logger.Printf("vm=%s no se pudo actualizar el registro DNS: %v", vm, rerr)
+			}
+		}
+		return ActionResult{}, err
+	}
+	res := ActionResult{Message: msg}
+	removed, err := s.dns.DropServerRecord(ctx, vm)
+	switch {
+	case err != nil:
+		s.logger.Printf("vm=%s no se pudo quitar el registro DNS: %v", vm, err)
+		res.Warning = dropRecordWarning(vm)
+	case removed:
+		res.Notice = serverRecordNotice(vm)
+	}
+	return res, nil
+}
+
+// assignServer valida y ejecuta assign-server.sh con los bloqueos del balanceador y de la VM. ran
+// indica si el script llegó a ejecutarse (una validación o un bloqueo ocupado lo dejan en false).
+func (s *HAProxyService) assignServer(ctx context.Context, lb, vm string, port int) (msg string, ran bool, err error) {
 	if err := ValidatePort(port); err != nil {
-		return "", err
+		return "", false, err
 	}
 	lbRow, err := s.getLB(ctx, lb)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := ValidateVMName(vm); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if _, err := s.vms.Get(ctx, vm); errors.Is(err, repository.ErrVMNotFound) {
-		return "", fmt.Errorf("buscar vm %s: %w", vm, ErrVMNotFound)
+		return "", false, fmt.Errorf("buscar vm %s: %w", vm, ErrVMNotFound)
 	} else if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if _, err := s.lbs.GetLB(ctx, vm); err == nil {
-		return "", ErrVMNotAssignable // un balanceador no puede ser servidor
+		return "", false, ErrVMNotAssignable // un balanceador no puede ser servidor
 	} else if !errors.Is(err, repository.ErrLBNotFound) {
-		return "", err
+		return "", false, err
 	}
 	if _, assigned, err := s.lbs.ServerByVM(ctx, vm); err != nil {
-		return "", err
+		return "", false, err
 	} else if assigned {
-		return "", ErrVMNotAssignable // ya es servidor de este balanceador o de otro
+		return "", false, ErrVMNotAssignable // ya es servidor de este balanceador o de otro
+	}
+	if dnsServer, ok, err := s.dnsRepo.Server(ctx); err != nil {
+		return "", false, err
+	} else if ok && dnsServer == vm {
+		return "", false, ErrVMNotAssignable // el servidor DNS tiene IP fija en puente (005 REQ-19)
 	}
 	rows, err := s.lbs.Servers(ctx, lb)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	name, err := nextServerName(rows)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	args := []string{lb, strconv.Itoa(lbRow.Subnet), vm, name, strconv.Itoa(port),
@@ -91,18 +125,39 @@ func (s *HAProxyService) AssignServer(ctx context.Context, lb, vm string, port i
 	}
 	res, err := s.ops.runLocked(ctx, "assign_server", lb, []string{lb, vm}, "haproxy/assign-server.sh", args, true, saveRow)
 	if err != nil {
-		return "", mapHAProxyError(err)
+		return "", !errors.Is(err, ErrOperationInProgress), mapHAProxyError(err)
 	}
 	if msg := firstLine(string(res.Stdout)); msg != "" {
-		return msg, nil
+		return msg, true, nil
 	}
-	return fmt.Sprintf("Servidor %s (%s) asignado a %s", name, vm, lb), nil
+	return fmt.Sprintf("Servidor %s (%s) asignado a %s", name, vm, lb), true, nil
 }
 
 // RemoveServer quita la VM del balanceador con remove-server.sh (REQ-11). La VM debe ser servidor de
 // ese balanceador. Pasa al script los servidores que quedan; si termina bien, borra la fila. Con el
-// balanceador apagado el script sale con 12 y la fila se conserva.
-func (s *HAProxyService) RemoveServer(ctx context.Context, lb, vm string) (string, error) {
+// balanceador apagado el script sale con 12 y la fila se conserva. Liberados los bloqueos no agrega
+// ningún registro (005 REQ-42): quita el que hubiera guardado antes de la enmienda y, si existe un
+// servidor DNS, avisa que la VM no tiene registro.
+func (s *HAProxyService) RemoveServer(ctx context.Context, lb, vm string) (ActionResult, error) {
+	msg, err := s.removeServer(ctx, lb, vm)
+	if err != nil {
+		return ActionResult{}, err
+	}
+	res := ActionResult{Message: msg}
+	if _, err := s.dns.DropServerRecord(ctx, vm); err != nil {
+		s.logger.Printf("vm=%s no se pudo quitar el registro DNS: %v", vm, err)
+		res.Warning = dropRecordWarning(vm)
+	}
+	if _, ok, err := s.dnsRepo.Server(ctx); err != nil {
+		s.logger.Printf("no se pudo leer el servidor DNS: %v", err)
+	} else if ok {
+		res.Notice = noRecordNotice(vm)
+	}
+	return res, nil
+}
+
+// removeServer valida y ejecuta remove-server.sh con los bloqueos del balanceador y de la VM.
+func (s *HAProxyService) removeServer(ctx context.Context, lb, vm string) (string, error) {
 	lbRow, err := s.getLB(ctx, lb)
 	if err != nil {
 		return "", err

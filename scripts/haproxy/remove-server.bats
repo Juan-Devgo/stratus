@@ -88,6 +88,17 @@ assert_order() {
   [ "$(cat "$BATS_TEST_TMPDIR/state-web-a")" = running ]
 }
 
+@test "AC-61 remove-server borra las propiedades de IP antes de arrancar" {
+  run "$SCRIPT" "${ARGS[@]}"
+
+  [ "$status" -eq 0 ]
+  assert_order \
+    "modifyvm web-a --nic2 none --nic1 bridged --bridgeadapter1 eth0" \
+    "guestproperty delete web-a /VirtualBox/GuestInfo/Net/0/V4/IP" \
+    "startvm web-a"
+  grep -qF -- "guestproperty delete web-a /VirtualBox/GuestInfo/Net/1/V4/IP" "$CALLS"
+}
+
 @test "AC-18 remove-server con el último servidor deja el backend vacío" {
   run "$SCRIPT" lb1 web-a 8080 eth0
 

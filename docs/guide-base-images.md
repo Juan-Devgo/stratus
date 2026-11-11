@@ -1,20 +1,26 @@
 # Guide: building the base images
 
 Stratus clones every VM from a prebuilt VirtualBox disk. The team builds these disks by hand, once.
-There are two:
+There are five:
 
 | Image | Environment variable | Used by |
 |---|---|---|
 | Server base image | `APP_BASE_DISK` | `create-vm.sh` (modules 001, 002, 003) and the servers of a load balancer |
 | Load balancer base image | `APP_HAPROXY_BASE_DISK` | `create-lb.sh` (module 004) |
+| Apache base image | `APP_APACHE_BASE_DISK` | `create-web.sh` type Apache (module 005), section 8 |
+| Nginx base image | `APP_NGINX_BASE_DISK` | `create-web.sh` type Nginx (module 005), section 8 |
+| DNS base image | `APP_DNS_BASE_DISK` | `create-dns.sh` (module 005), section 9 |
 
-This guide is derived from the constitution, specs 001-004 and the scripts in `scripts/`. It was not
+The three 005 images are optional: the backend starts without them and only rejects the creation of
+a web or DNS server ("Disco base de Apache|Nginx|DNS no encontrado").
+
+This guide is derived from the constitution, specs 001-005 and the scripts in `scripts/`. It was not
 yet run against a real VirtualBox (see the pending real-host demos in each `progress.md`), so the
 verification commands in every step are there to confirm each point on your machine.
 Environment variables are explained in [guide-environment.md](guide-environment.md); read its
 section 3 first, because the root password you set here must match the password file.
 
-## 1. What both images must satisfy
+## 1. What every image must satisfy
 
 | Requirement | Why | Source |
 |---|---|---|
@@ -294,3 +300,99 @@ ssh root@<vm-ip>        # password login must be refused
 | 5 | "La llave del backend no abrió una sesión SSH" | `openssh-server` missing or `AllowUsers` set |
 | 6 | "Disco base no encontrado" / "Interfaz de puente no encontrada" | wrong `APP_BASE_DISK` / `APP_HAPROXY_BASE_DISK` or `APP_BRIDGE_ADAPTER` |
 | 13 | "Red interna ya registrada en VirtualBox" | leftover `stratus-<lb>` DHCP server; `VBoxManage dhcpserver remove --network=stratus-<lb>` |
+
+## 8. Apache and Nginx base images (`APP_APACHE_BASE_DISK`, `APP_NGINX_BASE_DISK`)
+
+A web server is a 001 VM on top of its own base disk (005 REQ-2). It can be assigned to a load
+balancer (004), so build each web image from a **clone of the server image** (section 3, with the
+second-NIC stanza), not from the load balancer image. Clone the finished server image once per web
+type before its section 5 cleanup, or clone the common part again and repeat section 3.1.
+
+### 8.1 Install the web server and enable it at boot
+
+Only one of the two per image:
+
+```bash
+# Apache image
+apt install -y apache2
+systemctl enable apache2
+systemctl is-active apache2          # active
+
+# Nginx image
+apt install -y nginx
+systemctl enable nginx
+systemctl is-active nginx            # active
+```
+
+Do not install both in the same image: modules 001 and 005 refuse to install `nginx` on an Apache
+server and `apache2` on an Nginx server (005 REQ-7).
+
+### 8.2 Leave the stock site
+
+`create-web.sh` replaces the site configuration with a single site on port 80 named `<vm>.<APP_DNS_DOMAIN>`
+and root `/var/www/html`, and "Instalar página" replaces the whole content of `/var/www/html`. The
+image only needs the stock files of the package; do not add sites, TLS or other virtual hosts.
+
+```bash
+curl -s http://127.0.0.1/ | head -3       # the stock Apache or Nginx page
+```
+
+### 8.3 Finish
+
+Go to section 5, then set `APP_APACHE_BASE_DISK` or `APP_NGINX_BASE_DISK`. The two must be different
+files from each other and from the other base disks.
+
+## 9. DNS base image (`APP_DNS_BASE_DISK`)
+
+The DNS server is a 001 VM with a static address (005 REQ-13, REQ-14). It cannot be assigned to a
+load balancer, so build it from a clone of the **common part** (section 2). The second-NIC stanza of
+section 3.1 is harmless but not needed.
+
+### 9.1 Install bind9 and enable it at boot
+
+```bash
+apt install -y bind9 bind9-dnsutils
+systemctl enable named
+systemctl is-active named            # active
+named-checkconf                      # no output
+```
+
+`create-dns.sh` writes `/etc/bind/named.conf.options`, `/etc/bind/named.conf.local` and the zone file
+on every creation, so the stock configuration only has to be valid. Do not add zones or forwarders.
+
+### 9.2 Keep ifupdown
+
+`create-dns.sh` writes the static address of `APP_DNS_IP` to
+`/etc/network/interfaces.d/stratus-static` and `nameserver 127.0.0.1` to `/etc/resolv.conf`, so the
+image must use ifupdown (section 2.4) and must not run NetworkManager, systemd-networkd or
+systemd-resolved.
+
+```bash
+dpkg -l ifupdown | tail -1            # ii  ifupdown ...
+systemctl is-enabled systemd-resolved 2>/dev/null || echo "systemd-resolved not installed"
+```
+
+### 9.3 Finish
+
+Go to section 5, then set `APP_DNS_BASE_DISK` and the other `APP_DNS_*` variables
+([guide-environment.md](guide-environment.md) section 2.4).
+
+### 9.4 Verification
+
+After "Crear servidor DNS" (module "DNS"), from the host:
+
+```bash
+dig @192.168.1.53 stratus.lan NS +short          # dns1.stratus.lan.
+dig @192.168.1.53 dns1.stratus.lan A +short      # 192.168.1.53
+dig @192.168.1.53 debian.org A +short            # an address, through the forwarders
+```
+
+Use the address of `APP_DNS_IP` and the zone of `APP_DNS_DOMAIN`. Reboot the DNS server and repeat:
+the address must not change (005 AC-22).
+
+| Exit code | Message | Likely cause |
+|---|---|---|
+| 2 | "Configuración de DNS incompleta" | an `APP_DNS_*` value is missing or invalid (environment guide 2.4) |
+| 4 | "arping no está instalado en el host" / "arping no pudo enviar la sonda ARP" | install `arping` or give it `cap_net_raw` (environment guide section 1) |
+| 6 | "Disco base de DNS no encontrado" | wrong `APP_DNS_BASE_DISK` |
+| 13 | "La IP del servidor DNS ya está en uso" | another host answers ARP or ping at that address; pick one outside the router's DHCP pool |

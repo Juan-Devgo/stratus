@@ -100,6 +100,7 @@ US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID i
 - REQ-38 (US-1..US-8): Every operation ends with a success or failure message in the UI; failure messages are understandable and do not show raw stack traces; while an operation runs, the UI shows a loading indicator and disables the buttons.
 - REQ-39 (US-1..US-8): Each script file starts with a header documenting usage, arguments and exit-code table (including reserved code 99 "Operación no implementada"), followed by `set -euo pipefail`, with comments organized in sections and numbered steps.
 - REQ-40 (US-1..US-11): The UI is built with shadcn/ui components and all its text is in Spanish.
+- REQ-50 (US-9): When the browser abandons a request before the answer (page reload or navigation), the read stops without consequences: a VM list read cut short this way is not recorded as a failed `list_web` or `list_dns` (REQ-35), and the server log does not report the cancellation as an internal error. Operations that change state keep running to the end (001 REQ-14).
 
 ### Table helpers and zone view
 - REQ-43 (US-10): Every IPv4 address shown in a table of the UI has a copy button next to it: the IP column of the web servers table (REQ-6), the IP column of the load balancers table and the internal IP column of the servers table (004), the IP and record IP columns of the DNS records table (REQ-23) and the value of each A record of the zone table (REQ-46). A cell that shows "-" has no button.
@@ -192,6 +193,7 @@ US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID i
 - AC-68 (US-11): Given the DNS server off, when the user opens the "Zona" tab, then it shows "El servidor DNS está apagado; enciéndalo para ver la zona" and the DNS history has a failed `show_zone` row; given 20 successful reads, then the history has no `show_zone` row.
 - AC-69 (US-11): Given `show-zone.sh` run directly with a missing argument or a value outside its allowlist (name `DNS_1`, domain `Stratus_Lan`), when it runs, then it exits with code 2 and calls neither VBoxManage nor ssh.
 - AC-70 (US-11): Given the real host with `dns1` and a record for `vm1`, when the user opens "Zona" before and after removing the record, then the A row of `vm1.stratus.lan` is shown and then gone, matching `dig @<APP_DNS_IP> vm1.stratus.lan A`.
+- AC-71 (US-9): Given a request to the web or DNS screen whose browser closes the connection while `list-vms.sh` runs, when the history and the server log are inspected, then there is no `list_web` or `list_dns` row and no "error interno" line for it; given `list-vms.sh` failing without a cancellation, then the failed row is still recorded.
 - AC-56 (US-1..US-8): Given the script files, when one is opened, then it contains usage, arguments, exit-code table (including 99), `set -euo pipefail` and comments with sections and numbered steps.
 
 ## 6. Out of scope
@@ -254,3 +256,4 @@ US-7 (the DNS server as resolver of each VM) was removed on 2026-11-11; its ID i
 - 2026-11-11. Q: How does the user see the records the DNS server actually has? A: A new tab above the DNS records table lists type, name, value and TTL, read from the DNS server by a new script (US-11, REQ-46 to REQ-49). The change is an amendment of this spec, not a new one.
 - 2026-11-11. Planner proposal adopted by default (not a user answer): the zone is read from the zone file through `named-checkzone -D` (canonical form, absolute names) rather than AXFR, because REQ-16 does not configure `allow-transfer` and the file is what bind9 loads after every checked reload (REQ-28).
 - 2026-11-11. Planner proposal adopted by default (not a user answer): links use `http://` because only port 80 is served, without HTTPS (REQ-4).
+- 2026-11-11. Q: What happens when the browser abandons a request (reload or navigation) while the VM list is read? A: Nothing is recorded and nothing is logged as an internal error; it is not a failure of the read (REQ-50, AC-71). Reported from the server log lines "no se pudo guardar el historial de list_dns: guardar operación: context canceled" and "error interno: obtener servidor DNS: context canceled".

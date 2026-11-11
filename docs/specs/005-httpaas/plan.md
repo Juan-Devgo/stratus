@@ -2,7 +2,7 @@
 
 ## 1. Metadata
 - Spec: `docs/specs/005-httpaas/spec.md`
-- Updated: 2026-11-11 (amendment: copy buttons on IPs, links on DNS record names and the "Zona" tab; US-10, US-11, REQ-43 to REQ-49, AC-63 to AC-70). Earlier on 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
+- Updated: 2026-11-11 (amendment: abandoned requests are neither recorded nor logged as internal errors; REQ-50, AC-71). Earlier on 2026-11-11 (amendment: copy buttons on IPs, links on DNS record names and the "Zona" tab; US-10, US-11, REQ-43 to REQ-49, AC-63 to AC-70). Earlier on 2026-11-11 (amendment: the DNS server is not set as resolver of the VMs; US-7, REQ-31 to REQ-33, AC-42 to AC-44 and AC-49 removed). Previous: 2026-11-10 (A records only with LAN addresses; REQ-41, REQ-42, AC-57 to AC-62)
 - Constitution version: 2.1.0
 
 ## 2. Constitution check
@@ -178,6 +178,10 @@ Amendment 2026-11-11, zone view and table helpers (tests next to each):
 - modify: `stratus-ui/src/features/dns/{types,api}.ts` - `ZoneRecord`, `getZone`.
 - create: `stratus-ui/src/features/dns/ZoneTable.tsx` - the "Zona" tab.
 - modify: `stratus-ui/src/routes/Dns.tsx` - tabs "VMs" and "Zona" in the "Registros" card; `zoneVersion` counter bumped by `reload`.
+
+Amendment 2026-11-11, abandoned requests (tests next to each):
+- modify: `stratus-srv/internal/service/vm_status.go` - `queryVMStates` returns no failed row when `ctx.Err() != nil` after `list-vms.sh` (REQ-50); `listErr` stays set, nobody reads the answer.
+- modify: `stratus-srv/internal/handler/respond.go` - `writeError` returns without logging or writing when `errors.Is(err, context.Canceled)` (REQ-50).
 
 ## 6. Interfaces and data
 Environment (all optional at startup; checked when used):
@@ -672,6 +676,8 @@ ZoneTable({ version })                            // features/dns; reads on moun
 | AC-65 the FQDN is a link | unit | `stratus-ui/src/features/dns/RecordTable.test.tsx` | US-10 / REQ-45 / AC-65 | link `http://web-a.stratus.lan/`, `target=_blank`, `rel=noopener noreferrer`; no link for "-" |
 | AC-66, AC-67, AC-68 zone tab | unit | `stratus-ui/src/features/dns/ZoneTable.test.tsx`, `stratus-ui/src/routes/Dns.test.tsx` | US-11 / REQ-46, REQ-47, REQ-49 / AC-66, AC-67, AC-68 | "VMs" default; "Zona" lists the rows with copy buttons on A values; Recargar and an operation with the tab open read again; error text shown; empty zone text |
 | AC-70 zone before and after removing a record | manual | real host demo | US-11 / REQ-46 / AC-70 | open "Zona", remove `vm1`'s record, open again, `dig` |
+| TestAC71_CancelledListNotRecorded | unit | `stratus-srv/internal/service/vm_status_test.go` | US-9 / REQ-50 / AC-71 | cancelled context and a failing runner - no failed row; live context and the same failure - failed row |
+| TestAC71_CancelledRequestNotLogged | unit | `stratus-srv/internal/handler/respond_test.go` | US-9 / REQ-50 / AC-71 | wrapped `context.Canceled` - no "error interno" log line and no body; another error - 500 and the log line |
 
 Note on REQ-38 and REQ-40: covered by every UI test above (success/failure `OperationResult`, busy buttons through `useOperation`, shadcn components and Spanish texts).
 
@@ -728,6 +734,7 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 | REQ-47 | `ZoneTable` version and Recargar, `Dns.tsx` `zoneVersion` | AC-67 |
 | REQ-48 | `show-zone.sh`, `ops.run` DNS server lock | AC-66, AC-69 |
 | REQ-49 | `ErrDNSOffZone`, record policy `show_zone` | AC-68 |
+| REQ-50 | `queryVMStates` cancellation check, `context.Canceled` in `respond.go` | AC-71 |
 
 ## 9. Decisions and risks
 - State in new SQLite tables (user's choice). Rejected: a `kind` column on `vms`, which needs a migration the schema does not have.
@@ -739,6 +746,7 @@ Amendment 2026-11-10, existing 005 tests whose assertions change (changed before
 - `refresh-records.sh` also polls the DNS server inside the same 120 s window, so the refresh after starting the DNS server does not fail while it boots.
 - Hooks run after the main operation releases its locks (REQ-34); a DNS server locked by another operation gives the warning instead of waiting.
 - Several warnings (004 refresh and DNS refresh) are joined with `\n` in one `warning` field, shown with `whitespace-pre-line`. Rejected: changing the field to an array, which breaks 004 clients.
+- A cancelled request answers nothing: the client is gone, so `writeError` neither writes nor logs. Rejected: the 499 status of nginx, which no client would read. The check lives in `queryVMStates` so every caller (`list_web`, `list_dns` and the unrecorded lists) behaves the same.
 - `named` is the Debian 13 unit name for bind9 (`bind9` is an alias).
 - Risk: `create-dns.sh` runs `create-vm.sh` (worst case 14 min) plus a power cycle (up to 4 min), which can pass the 15-minute timeout. Mitigation: SIGTERM runs the trap (process group); the demo measures it; the static-IP wait is bounded at 180 s.
 - Risk: `arping` needs `CAP_NET_RAW`. Mitigation: `docs/guide-environment.md` documents `setcap cap_net_raw+ep $(command -v arping)`; a missing `arping` exits 4 with a clear message.

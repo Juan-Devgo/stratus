@@ -289,3 +289,10 @@ Removed on 2026-11-11 by Phase 21.
 ## Phase 25: Amendment 2026-11-11 verification
 - [x] T238 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, `cd stratus-ui && pnpm typecheck && pnpm test && pnpm build` and `bats -r scripts/dns/`, and fix every failure (REQ-39, AC-55, AC-56)
 - [ ] T239 Run the real-host demo AC-70 (REQ-46, AC-70)
+
+## Phase 26: Amendment 2026-11-11: abandoned requests (REQ-50)
+- [x] T240 Amend `spec.md` (REQ-50, AC-71, clarification), `plan.md` and this file, and commit the docs
+- [ ] T241 Write `TestAC71_CancelledListNotRecorded` in `stratus-srv/internal/service/vm_status_test.go` and `TestAC71_CancelledRequestNotLogged` in `stratus-srv/internal/handler/respond_test.go` (REQ-50, AC-71)
+- [ ] T242 Skip the failed row on a cancelled context in `stratus-srv/internal/service/vm_status.go` (REQ-50, AC-71)
+- [ ] T243 Skip the log and the answer for `context.Canceled` in `stratus-srv/internal/handler/respond.go` (REQ-50, AC-71)
+- [ ] T244 Run `cd stratus-srv && gofmt -l . && golangci-lint run && go test ./...`, then commit the phase staging only its files by path

@@ -6,7 +6,7 @@ import type { UnitAction } from "@/features/web/types";
 
 import type { DnsOverview, RecordResult } from "./types";
 
-// Servidor DNS y demás VMs con su registro y su resolvedor (REQ-17, REQ-23, REQ-31).
+// Servidor DNS y demás VMs con su registro (REQ-17, REQ-23).
 export function getDnsOverview(): Promise<DnsOverview> {
   return request("GET", "/api/dns");
 }
@@ -45,11 +45,6 @@ export function removeRecord(vm: string): Promise<string> {
 // Actualiza las IPs de todos los registros; la zona solo se recarga si cambió (REQ-27).
 export function refreshRecords(): Promise<string> {
   return operation("POST", "/api/dns/records/refresh");
-}
-
-// Usa (on) o deja de usar el servidor DNS como resolvedor de la VM (REQ-31).
-export function setResolver(vm: string, on: boolean): Promise<string> {
-  return operation(on ? "PUT" : "DELETE", `/api/dns/resolvers/${encodeURIComponent(vm)}`);
 }
 
 // Últimas 50 operaciones del módulo, la más reciente primero (REQ-36).

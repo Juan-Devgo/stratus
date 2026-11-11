@@ -18,7 +18,7 @@ function messageOf(error: unknown, fallback: string): string {
 }
 
 // Pantalla del módulo "DNS": sin servidor, el formulario de crear (REQ-13); con servidor, su panel
-// y la tabla de registros y resolvedores (REQ-17, REQ-23, REQ-31). Al final, el historial (REQ-36).
+// y la tabla de registros (REQ-17, REQ-23). Al final, el historial (REQ-36).
 export function Dns() {
   // null hasta la primera lectura: así no aparece el formulario de crear antes de saber si hay servidor.
   const [overview, setOverview] = useState<DnsOverview | null>(null);
@@ -69,7 +69,7 @@ export function Dns() {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold">DNS</h1>
         <p className="text-muted-foreground">
-          Cree el servidor DNS de la red, registre los nombres de las VMs y úselo como su resolvedor.
+          Cree el servidor DNS de la red y registre los nombres de las VMs.
         </p>
       </div>
 
@@ -110,9 +110,9 @@ export function Dns() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Registros y resolvedores</CardTitle>
+              <CardTitle>Registros</CardTitle>
               <CardDescription>
-                Registros A de la zona {server.zone} y VMs que usan el servidor DNS como resolvedor.
+                Registros A de la zona {server.zone}.
               </CardDescription>
             </CardHeader>
             <CardContent>

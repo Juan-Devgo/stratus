@@ -114,3 +114,9 @@
 - Files: `docs/guide-environment.md` (section 2.4: records only inside the subnet of `APP_DNS_IP`, `APP_DNS_IP` outside `10.10.0.0/16`, one "Actualizar registros" after upgrading removes records stored with internal addresses).
 - Decisions: none beyond the guide text.
 - Notes: T203 green: gofmt clean, golangci-lint 0 issues, `go test ./...` ok, `pnpm typecheck`, 269 tests and `pnpm build` ok, `bats -r -j 8 scripts/` exit 0 with 694 ok / 0 not ok. T204 (real-host demo of the amendment) is manual and stays unchecked, like T149 and T150: it needs VirtualBox, the base disks, `APP_DNS_*` and `arping` with `cap_net_raw`.
+
+## Phase 21: Amendment 2026-11-11: remove the DNS server as resolver
+- Files: `repository/{db,dns,dns_test}.go`, new `repository/db_test.go`; `service/{dns_server,dns_records,dns_service,errors,prepare_vms}.go` + tests, `dns_resolvers{,_test}.go` deleted; `handler/{dns,respond}.go` + tests; `scripts/dns/{set,unset}-resolver.{sh,bats}` deleted, `lib/dns-common.sh` (section 8 gone), `test_helper.bash`; `features/dns/{types,api}.ts`, `RecordTable.{tsx,test.tsx}`, `DnsServerPanel.test.tsx`, `routes/Dns.{tsx,test.tsx}`, `features/home/modules.ts`; `components/ui/switch.tsx` deleted (no other user).
+- Decisions: the schema runs `DROP TABLE IF EXISTS dns_resolvers` (TestOpenDropsDNSResolvers). TestNoResolverRoutes accepts 404 or 405 for `PUT`/`DELETE /api/dns/resolvers/vm1`. The DNS screen and home card texts no longer mention the resolver; the records card is titled "Registros". The AC-29 panel test now uses a generic 409 text.
+- Notes: gofmt clean, golangci-lint 0 issues, `go test ./...` ok, `bats -r -j 8 scripts/dns/` 84 ok, UI typecheck, 269 tests and build ok. VMs whose resolver was set before the upgrade keep their guest configuration (out of scope, plan section 9).
+

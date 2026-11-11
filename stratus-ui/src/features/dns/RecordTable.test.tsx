@@ -12,7 +12,6 @@ const VM1: DnsVm = {
   ip: "192.168.1.31",
   fqdn: "",
   record_ip: "",
-  resolver: false,
 };
 const LB1: DnsVm = { ...VM1, name: "lb1", role: "lb", ip: "192.168.1.60" };
 const VM2: DnsVm = { ...VM1, name: "vm2", state: "poweroff", ip: "" };
@@ -23,7 +22,6 @@ const WEB_A: DnsVm = {
   ip: "192.168.1.40",
   fqdn: "web-a.stratus.lan",
   record_ip: "192.168.1.40",
-  resolver: true,
 };
 
 function jsonResponse(status: number, body: unknown) {
@@ -119,26 +117,10 @@ describe("RecordTable", () => {
     expect(init?.method).toBe("DELETE");
   });
 
-  it("AC-42 the resolver Switch sets and unsets the resolver", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(() => Promise.resolve(jsonResponse(200, { message: "Hecho" })));
-    const user = userEvent.setup();
+  it("AC-23 shows no resolver column or switch", () => {
     render(<RecordTable vms={[VM1, WEB_A]} busy={false} onDone={vi.fn()} />);
 
-    const on = screen.getByRole("switch", { name: "Usar como resolvedor en vm1" });
-    expect(on).not.toBeChecked();
-    expect(screen.getByRole("switch", { name: "Usar como resolvedor en web-a" })).toBeChecked();
-
-    await user.click(on);
-    await screen.findByText("Hecho");
-    await user.click(screen.getByRole("switch", { name: "Usar como resolvedor en web-a" }));
-
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    const calls = fetchSpy.mock.calls.map(([url, init]) => [url, init?.method]);
-    expect(calls).toEqual([
-      ["/api/dns/resolvers/vm1", "PUT"],
-      ["/api/dns/resolvers/web-a", "DELETE"],
-    ]);
+    expect(screen.queryByRole("columnheader", { name: "Resolvedor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
   });
 });

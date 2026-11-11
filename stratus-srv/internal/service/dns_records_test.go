@@ -446,16 +446,13 @@ func TestAC35_RecordsWithoutDNSServer(t *testing.T) {
 	}
 }
 
-// REQ-24, REQ-33: AfterVMDeleted borra el resolvedor y el registro de la VM eliminada y aplica el
+// REQ-24: AfterVMDeleted borra el registro de la VM eliminada y aplica el
 // conjunto restante; si el script falla, la fila ya no está, queda una fila fallida y se devuelve la
 // advertencia.
 func TestAC34_AfterVMDeleted(t *testing.T) {
 	env, runner := newRecordsEnv(t)
 	ctx := context.Background()
 	if err := env.dns.InsertRecords(ctx, []repository.DNSRecord{{VM: "vm1", IP: "192.168.1.40"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.dns.SetResolver(ctx, "vm1", true); err != nil {
 		t.Fatal(err)
 	}
 	runner.results["dns/remove-record.sh"] = RunResult{ExitCode: 7}
@@ -467,9 +464,6 @@ func TestAC34_AfterVMDeleted(t *testing.T) {
 	}
 	if recs := env.records(t); len(recs) != 0 {
 		t.Errorf("dns_records = %+v, se esperaba vacío", recs)
-	}
-	if res, _ := env.dns.Resolvers(ctx); len(res) != 0 {
-		t.Errorf("dns_resolvers = %v, se esperaba vacío", res)
 	}
 	if op := env.lastDNSOperation(t); op.Operation != "remove_record" || op.Result != "error" {
 		t.Errorf("historial = %+v, se esperaba remove_record fallido", op)

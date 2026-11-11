@@ -25,13 +25,12 @@
 #   apply_zone <dns> <dominio> [--if-changed]
 #                                          aplica la zona de stdin en el servidor DNS (REQ-28)
 #   wait_ips <ip/prefijo> <vm...>          imprime "<vm> <ip|->" tras esperar su IPv4 de la LAN (REQ-27)
-#   resolver_program                       imprime el programa remoto del resolvedor (REQ-31)
 #
 # Variables de entorno:
 #   APP_SSH_KEY_PATH  llave privada del backend (la usa vm_exec)
 #
 # Salida:
-#   stdout  render_options, render_zone, wait_ips, resolver_program y "reloaded=yes|no" de apply_zone
+#   stdout  render_options, render_zone, wait_ips y "reloaded=yes|no" de apply_zone
 #   stderr  el motivo de un fallo; los validadores nunca repiten el valor
 #
 # Códigos de salida: valor de retorno de las funciones (los scripts usan la misma tabla)
@@ -371,76 +370,4 @@ wait_ips() {
     i=$((i + 1))
   done
   rm -rf "$dir"
-}
-
-# == 8. resolver_program (REQ-31) ==
-# Imprime el programa sh que set-resolver.sh y unset-resolver.sh envían por stdin a la VM con
-# "sh -s stratus-resolver <set|unset> <ip>" (corre como root). Ambos modos son idempotentes.
-# 8.1 set con dhclient: deja en /etc/dhcp/dhclient.conf un único bloque "# stratus-resolver" +
-#     "prepend domain-name-servers <ip>;", que sobrevive a renovaciones y reinicios.
-# 8.2 set con dhcpcd: escribe el hook /usr/lib/dhcpcd/dhcpcd-hooks/99-stratus-resolver, que tras
-#     cada cambio de DHCP antepone "nameserver <ip>" a /etc/resolv.conf si no es el primero.
-# 8.3 set sin ninguno de los dos: "No se encontró un cliente DHCP compatible" y sale con 3.
-# 8.4 set aplica el cambio ya: antepone "nameserver <ip>" a /etc/resolv.conf si no es el primero,
-#     sin repetirlo (archivo temporal y mv).
-# 8.5 unset: quita el bloque y el hook, y las líneas "nameserver <ip>" de /etc/resolv.conf. Lo que
-#     falte no es un error.
-
-resolver_program() {
-  cat <<'PROGRAM'
-set -eu
-mode="$2"
-ip="$3"
-mark="# stratus-resolver"
-conf=/etc/dhcp/dhclient.conf
-hook=/usr/lib/dhcpcd/dhcpcd-hooks/99-stratus-resolver
-resolv=/etc/resolv.conf
-
-drop_block() {
-  if [ -f "$conf" ] && grep -qx "$mark" "$conf"; then
-    sed "/^$mark\$/,+1d" "$conf" >"$conf.stratus"
-    mv "$conf.stratus" "$conf"
-  fi
-}
-
-prepend_ns() {
-  first="$(sed -n 's/^nameserver[[:space:]]*//p' "$resolv" 2>/dev/null | head -n 1)"
-  if [ "$first" != "$ip" ]; then
-    { echo "nameserver $ip"; grep -vxF "nameserver $ip" "$resolv" 2>/dev/null || true; } >"$resolv.stratus"
-    mv "$resolv.stratus" "$resolv"
-  fi
-}
-
-case "$mode" in
-  set)
-    if command -v dhclient >/dev/null 2>&1; then
-      mkdir -p /etc/dhcp
-      drop_block
-      printf '%s\nprepend domain-name-servers %s;\n' "$mark" "$ip" >>"$conf"
-    elif command -v dhcpcd >/dev/null 2>&1; then
-      mkdir -p /usr/lib/dhcpcd/dhcpcd-hooks
-      cat >"$hook" <<HOOK
-$mark: antepone el servidor DNS de Stratus a /etc/resolv.conf tras cada cambio de DHCP.
-stratus_first="\$(sed -n 's/^nameserver[[:space:]]*//p' /etc/resolv.conf 2>/dev/null | head -n 1)"
-if [ -f /etc/resolv.conf ] && [ "\$stratus_first" != "$ip" ]; then
-  { echo "nameserver $ip"; grep -vxF "nameserver $ip" /etc/resolv.conf || true; } >/etc/resolv.conf.stratus
-  mv /etc/resolv.conf.stratus /etc/resolv.conf
-fi
-HOOK
-    else
-      echo "No se encontró un cliente DHCP compatible" >&2
-      exit 3
-    fi
-    prepend_ns
-    ;;
-  unset)
-    drop_block
-    rm -f "$hook"
-    if [ -f "$resolv" ] && grep -qxF "nameserver $ip" "$resolv"; then
-      grep -vxF "nameserver $ip" "$resolv" >"$resolv.stratus" || true
-      mv "$resolv.stratus" "$resolv"
-    fi
-    ;;
-esac
-PROGRAM
 }

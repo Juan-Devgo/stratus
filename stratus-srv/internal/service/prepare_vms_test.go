@@ -1035,23 +1035,12 @@ func TestAC10_DeleteVMDelegatesWebServer(t *testing.T) {
 	}
 }
 
-// AC-29: eliminar desde 001 el servidor DNS pasa por el módulo DNS (delete_dns) y respeta sus reglas.
+// AC-29: eliminar desde 001 el servidor DNS pasa por el módulo DNS (delete_dns).
 func TestAC29_PrepareDeleteDelegatesDNS(t *testing.T) {
 	runner := &fakeRunner{}
 	env := newDNSEnv(t, runner)
 	ctx := context.Background()
 	env.registerDNS(t, "dns1")
-	if err := env.dns.SetResolver(ctx, "vm1", true); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := env.prepare.DeleteVM(ctx, "dns1"); err == nil ||
-		err.Error() != "Quite primero el resolvedor DNS de las VMs: vm1" {
-		t.Errorf("con resolvedor: err = %v", err)
-	}
-	if err := env.dns.SetResolver(ctx, "vm1", false); err != nil {
-		t.Fatal(err)
-	}
 
 	res, err := env.prepare.DeleteVM(ctx, "dns1")
 
@@ -1230,32 +1219,4 @@ func TestAC38_StartWithDNSOffWarns(t *testing.T) {
 			t.Errorf("Warning = %q, se esperaba %q", res.Warning, want)
 		}
 	})
-}
-
-// AC-44, REQ-33: eliminar una VM que usaba el servidor DNS como resolvedor borra su marca, y después
-// el servidor DNS se puede eliminar.
-func TestAC44_DeleteVMClearsResolver(t *testing.T) {
-	env, runner := newRecordsEnv(t)
-	ctx := context.Background()
-	if err := env.dns.SetResolver(ctx, "vm1", true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.svc.DeleteDNS(ctx); err == nil {
-		t.Fatal("DeleteDNS con un resolvedor debía rechazarse")
-	}
-
-	res, err := env.prepare.DeleteVM(ctx, "vm1")
-
-	if err != nil || res.Warning != "" {
-		t.Fatalf("DeleteVM = %+v, %v", res, err)
-	}
-	if got, _ := env.dns.Resolvers(ctx); len(got) != 0 {
-		t.Errorf("resolvedores = %v, se esperaba vacío", got)
-	}
-	if _, err := env.svc.DeleteDNS(ctx); err != nil {
-		t.Fatalf("DeleteDNS: %v", err)
-	}
-	if calls := runner.callsTo("prepare/delete-vm.sh"); len(calls) != 2 || calls[1].Args[0] != "dns1" {
-		t.Errorf("delete-vm.sh = %+v, se esperaba vm1 y luego dns1", calls)
-	}
 }

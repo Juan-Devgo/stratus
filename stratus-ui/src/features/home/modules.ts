@@ -44,7 +44,7 @@ export const MODULES: readonly {
   {
     id: "dns",
     title: "DNS",
-    description: "Crear el servidor DNS, registrar los nombres de las VMs y usarlo como su resolvedor.",
+    description: "Crear el servidor DNS y registrar los nombres de las VMs.",
     path: "/dns",
     enabled: true,
   },

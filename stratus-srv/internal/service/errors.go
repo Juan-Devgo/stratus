@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // Errores centinela del servicio. El handler los traduce a un código HTTP y su texto
@@ -165,13 +164,3 @@ func (e *PackageBlockedError) Error() string { return e.Message }
 
 // Unwrap permite usar errors.Is(err, ErrPackageBlocked).
 func (e *PackageBlockedError) Unwrap() error { return ErrPackageBlocked }
-
-// ResolversSetError indica que el servidor DNS no se puede eliminar mientras alguna VM lo usa como
-// resolvedor, aunque esté apagada (REQ-21). VMs son esas VMs, ordenadas.
-type ResolversSetError struct {
-	VMs []string
-}
-
-func (e *ResolversSetError) Error() string {
-	return "Quite primero el resolvedor DNS de las VMs: " + strings.Join(e.VMs, ", ")
-}

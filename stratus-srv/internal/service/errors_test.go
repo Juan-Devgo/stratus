@@ -153,14 +153,6 @@ func TestAC9_PackageBlockedError(t *testing.T) {
 	}
 }
 
-// AC-29: ResolversSetError nombra las VMs que usan el servidor DNS como resolvedor.
-func TestAC29_ResolversSetError(t *testing.T) {
-	err := &ResolversSetError{VMs: []string{"vm1", "vm2"}}
-	if got, want := err.Error(), "Quite primero el resolvedor DNS de las VMs: vm1, vm2"; got != want {
-		t.Errorf("Error() = %q, se esperaba %q", got, want)
-	}
-}
-
 // AC-31: ServerRecordError nombra el balanceador del que la VM es servidor (REQ-23).
 func TestAC31_ServerRecordError(t *testing.T) {
 	err := fmt.Errorf("add_records: %w", &ServerRecordError{LB: "lb1"})

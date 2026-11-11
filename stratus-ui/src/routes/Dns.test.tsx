@@ -15,7 +15,6 @@ const WEB_A = {
   ip: "192.168.1.40",
   fqdn: "web-a.stratus.lan",
   record_ip: "192.168.1.40",
-  resolver: false,
 };
 const HISTORY = [
   {

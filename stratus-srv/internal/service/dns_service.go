@@ -19,9 +19,9 @@ const (
 	exitDNSIPInUse      = 13 // la IP de APP_DNS_IP responde en la LAN
 )
 
-// DNSService implementa las operaciones del módulo "DNS": el servidor, sus registros y los
-// resolvedores viven en SQLite y cada cambio en el sistema lo hace un script de scripts/dns o de
-// scripts/prepare. Los demás módulos lo llaman después de sus operaciones para mantener la zona.
+// DNSService implementa las operaciones del módulo "DNS": el servidor y sus registros viven en
+// SQLite y cada cambio en el sistema lo hace un script de scripts/dns o de scripts/prepare. Los
+// demás módulos lo llaman después de sus operaciones para mantener la zona.
 type DNSService struct {
 	cfg     DNSConfig
 	runner  ScriptRunner

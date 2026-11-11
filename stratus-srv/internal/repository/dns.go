@@ -13,7 +13,7 @@ type DNSRecord struct {
 	IP string
 }
 
-// DNSRepository accede a las tablas dns_server, dns_records y dns_resolvers.
+// DNSRepository accede a las tablas dns_server y dns_records.
 type DNSRepository struct {
 	db *sql.DB
 }
@@ -193,40 +193,6 @@ func (r *DNSRepository) UpdateRecordIPs(ctx context.Context, recs []DNSRecord) e
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("actualizar registros DNS: %w", err)
-	}
-	return nil
-}
-
-// Resolvers devuelve las VMs que usan el servidor DNS como resolvedor, ordenadas (REQ-33).
-func (r *DNSRepository) Resolvers(ctx context.Context) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT vm FROM dns_resolvers ORDER BY vm`)
-	if err != nil {
-		return nil, fmt.Errorf("listar resolvedores DNS: %w", err)
-	}
-	defer rows.Close()
-
-	vms := []string{}
-	for rows.Next() {
-		var vm string
-		if err := rows.Scan(&vm); err != nil {
-			return nil, fmt.Errorf("listar resolvedores DNS: %w", err)
-		}
-		vms = append(vms, vm)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("listar resolvedores DNS: %w", err)
-	}
-	return vms, nil
-}
-
-// SetResolver marca (on) o desmarca la VM como usuaria del servidor DNS; repetir no es un error.
-func (r *DNSRepository) SetResolver(ctx context.Context, vm string, on bool) error {
-	stmt := `DELETE FROM dns_resolvers WHERE vm = ?`
-	if on {
-		stmt = `INSERT INTO dns_resolvers (vm) VALUES (?) ON CONFLICT(vm) DO NOTHING`
-	}
-	if _, err := r.db.ExecContext(ctx, stmt, vm); err != nil {
-		return fmt.Errorf("guardar resolvedor de %s: %w", vm, err)
 	}
 	return nil
 }

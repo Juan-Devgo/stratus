@@ -125,7 +125,6 @@ func TestAC50_CrossModuleLocks(t *testing.T) {
 		attempts := map[string]func() error{
 			"WebAction":      func() error { _, err := env.webEnv.svc.WebAction(ctx, "web-a", "restart"); return err },
 			"InstallPackage": func() error { _, err := env.prepare.InstallPackage(ctx, "web-a", "htop"); return err },
-			"SetResolver":    func() error { _, err := env.svc.SetResolver(ctx, "web-a"); return err },
 		}
 		for name, attempt := range attempts {
 			if err := attempt(); !errors.Is(err, ErrOperationInProgress) {
@@ -195,8 +194,6 @@ func TestAC51_DNSRecordPolicy(t *testing.T) {
 		func() error { _, _, err := env.svc.AddRecords(ctx, []string{"vm1"}); return err },
 		func() error { _, err := env.svc.Refresh(ctx); return err },
 		func() error { _, err := env.svc.RemoveRecord(ctx, "vm1"); return err },
-		func() error { _, err := env.svc.SetResolver(ctx, "vm1"); return err },
-		func() error { _, err := env.svc.UnsetResolver(ctx, "vm1"); return err },
 		func() error { _, err := env.svc.DNSAction(ctx, "start"); return err },
 		func() error { _, err := env.svc.DNSAction(ctx, "stop"); return err },
 		func() error { _, err := env.svc.DNSAction(ctx, "restart"); return err },
@@ -224,8 +221,7 @@ func TestAC51_DNSRecordPolicy(t *testing.T) {
 	}
 
 	want := map[string]int{"create_dns": 1, "add_records": 1, "refresh_records": 1, "remove_record": 1,
-		"set_resolver": 1, "unset_resolver": 1, "start_bind": 1, "stop_bind": 1, "restart_bind": 1,
-		"status_bind": 1, "delete_dns": 1}
+		"start_bind": 1, "stop_bind": 1, "restart_bind": 1, "status_bind": 1, "delete_dns": 1}
 	if got := countOps(ops); !reflect.DeepEqual(got, want) {
 		t.Errorf("filas por operación = %v, se esperaba %v", got, want)
 	}

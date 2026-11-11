@@ -185,7 +185,7 @@ func TestAC27_CreateDNSSkipsWebWithoutLANIP(t *testing.T) {
 }
 
 // REQ-17, REQ-23: la vista de la pantalla DNS trae el servidor con su estado, IPv4 y zona, y cada
-// otra VM con su tipo, su rol, su registro y su resolvedor.
+// otra VM con su tipo, su rol y su registro.
 func TestAC23_DNSOverview(t *testing.T) {
 	runner := &fakeRunner{results: map[string]RunResult{"prepare/list-vms.sh": {Stdout: []byte(
 		"dns1 running 192.168.1.53\nweb-a running 192.168.1.40\nvm1 poweroff -\n")}}}
@@ -194,9 +194,6 @@ func TestAC23_DNSOverview(t *testing.T) {
 	env.registerWeb(t, "web-a", WebTypeNginx)
 	env.registerDNS(t, "dns1", repository.DNSRecord{VM: "web-a", IP: "192.168.1.40"})
 	if _, err := env.vms.Insert(ctx, "vm1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := env.dns.SetResolver(ctx, "vm1", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -210,7 +207,7 @@ func TestAC23_DNSOverview(t *testing.T) {
 		t.Errorf("Server = %+v, se esperaba %+v", view.Server, wantServer)
 	}
 	want := []DNSVMView{
-		{Name: "vm1", Role: "vm", State: "poweroff", Resolver: true},
+		{Name: "vm1", Role: "vm", State: "poweroff"},
 		{Name: "web-a", Kind: WebTypeNginx, Role: "vm", State: "running", IP: "192.168.1.40",
 			FQDN: "web-a." + testDomain, RecordIP: "192.168.1.40"},
 	}
@@ -261,33 +258,10 @@ func TestAC58_OverviewHidesServerRecord(t *testing.T) {
 	}
 }
 
-// AC-29: con una VM que usa el servidor DNS como resolvedor (aunque esté apagada), eliminarlo se
-// rechaza sin llamar a ningún script; sin resolvedores, delete-vm.sh lo borra como delete_dns y no
-// quedan filas de DNS.
-func TestAC29_DeleteDNSRejectsWithResolvers(t *testing.T) {
-	t.Run("con resolvedor", func(t *testing.T) {
-		runner := &fakeRunner{}
-		env := newDNSEnv(t, runner)
-		ctx := context.Background()
-		env.registerDNS(t, "dns1")
-		if err := env.dns.SetResolver(ctx, "vm1", true); err != nil {
-			t.Fatal(err)
-		}
-
-		_, err := env.svc.DeleteDNS(ctx)
-
-		var resErr *ResolversSetError
-		if !errors.As(err, &resErr) || err.Error() != "Quite primero el resolvedor DNS de las VMs: vm1" {
-			t.Errorf("err = %v, se esperaba ResolversSetError con vm1", err)
-		}
-		if n := runner.callCount(); n != 0 {
-			t.Errorf("el runner se llamó %d veces, se esperaba 0", n)
-		}
-		if ok, _ := env.svc.IsDNSServer(ctx, "dns1"); !ok {
-			t.Error("dns1 debía seguir como servidor DNS")
-		}
-	})
-	t.Run("sin resolvedores", func(t *testing.T) {
+// AC-29: delete-vm.sh borra el servidor DNS como delete_dns y no quedan filas de DNS; ya no se
+// revisa si alguna VM lo usa como resolvedor (US-7 quitada el 2026-11-11).
+func TestAC29_DeleteDNS(t *testing.T) {
+	t.Run("con registros", func(t *testing.T) {
 		runner := &fakeRunner{}
 		env := newDNSEnv(t, runner)
 		ctx := context.Background()

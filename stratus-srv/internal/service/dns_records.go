@@ -362,14 +362,11 @@ func (s *DNSService) AddRecordsFor(ctx context.Context, vm, ip string) error {
 	return err
 }
 
-// AfterVMDeleted es el hook de eliminar una VM desde 001, web o HAProxy (REQ-24, REQ-33): borra su
-// resolvedor y, si tenía registro, borra la fila y aplica el conjunto restante con remove-record.sh.
+// AfterVMDeleted es el hook de eliminar una VM desde 001, web o HAProxy (REQ-24): si tenía
+// registro, borra la fila y aplica el conjunto restante con remove-record.sh.
 // Si eso falla devuelve la advertencia de REQ-24; el próximo refresco renderiza desde SQLite y quita
 // la línea vieja.
 func (s *DNSService) AfterVMDeleted(ctx context.Context, vm string) string {
-	if err := s.dnsRepo.SetResolver(ctx, vm, false); err != nil {
-		s.logger.Printf("no se pudo borrar el resolvedor de %s: %v", vm, err)
-	}
 	dns, ok, err := s.dnsRepo.Server(ctx)
 	if err != nil {
 		s.logger.Printf("no se pudo leer el servidor DNS: %v", err)

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// TestAC1_WebAndDNSRepositories (DNS) recorre el servidor DNS, sus registros y los resolvedores
-// (AC-22, AC-27, AC-29, AC-30, AC-42).
+// TestAC1_WebAndDNSRepositories (DNS) recorre el servidor DNS y sus registros
+// (AC-22, AC-27, AC-29, AC-30).
 func TestAC1_WebAndDNSRepositories_DNS(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
@@ -92,27 +92,6 @@ func TestAC1_WebAndDNSRepositories_DNS(t *testing.T) {
 		recs, _ = repo.Records(ctx)
 		if want := []DNSRecord{{"web-b", "192.168.1.41"}}; !reflect.DeepEqual(recs, want) {
 			t.Errorf("tras DeleteRecords Records = %+v, se esperaba %+v", recs, want)
-		}
-	})
-
-	t.Run("resolvedores", func(t *testing.T) {
-		for _, vm := range []string{"vm2", "vm1", "vm1"} {
-			if err := repo.SetResolver(ctx, vm, true); err != nil {
-				t.Fatalf("SetResolver(%s, true): %v", vm, err)
-			}
-		}
-		got, err := repo.Resolvers(ctx)
-		if err != nil || !reflect.DeepEqual(got, []string{"vm1", "vm2"}) {
-			t.Errorf("Resolvers = %v, %v", got, err)
-		}
-		for _, vm := range []string{"vm1", "vm1", "vm2"} {
-			if err := repo.SetResolver(ctx, vm, false); err != nil {
-				t.Fatalf("SetResolver(%s, false): %v", vm, err)
-			}
-		}
-		got, _ = repo.Resolvers(ctx)
-		if len(got) != 0 {
-			t.Errorf("Resolvers = %v, se esperaba vacío", got)
 		}
 	})
 

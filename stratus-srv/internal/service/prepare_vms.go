@@ -205,9 +205,8 @@ func (s *PrepareService) StopVM(ctx context.Context, name string) (string, error
 // ErrVMIsServer; un balanceador con servidores, con ErrLBHasServers; y un balanceador sin
 // servidores se elimina con delete-lb.sh, que también quita su red interna. Un servidor web (005)
 // se elimina con WebService.DeleteWeb, que también borra su tipo, y el servidor DNS con
-// DNSService.DeleteDNS, que se niega mientras alguna VM lo use como resolvedor. Después se quita el
-// registro DNS de la VM eliminada; si falla, la eliminación termina bien con la advertencia de 005
-// REQ-24.
+// DNSService.DeleteDNS. Después se quita el registro DNS de la VM eliminada; si falla, la
+// eliminación termina bien con la advertencia de 005 REQ-24.
 func (s *PrepareService) DeleteVM(ctx context.Context, name string) (ActionResult, error) {
 	if _, err := s.getVM(ctx, name); err != nil {
 		return ActionResult{}, err

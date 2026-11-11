@@ -19,7 +19,7 @@ type DNSServerView struct {
 	Zone  string `json:"zone"`
 }
 
-// DNSVMView es una VM de la tabla de registros de la pantalla DNS (REQ-23, REQ-31).
+// DNSVMView es una VM de la tabla de registros de la pantalla DNS (REQ-23).
 type DNSVMView struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"` // "", apache o nginx
@@ -28,7 +28,6 @@ type DNSVMView struct {
 	IP       string `json:"ip"`        // IPv4 actual según list-vms.sh
 	FQDN     string `json:"fqdn"`      // <vm>.<dominio> si tiene registro; si no, vacío
 	RecordIP string `json:"record_ip"` // IPv4 guardada en su registro; si no tiene, vacío
-	Resolver bool   `json:"resolver"`  // la app puso el servidor DNS como su resolvedor
 }
 
 // DNSOverview es la respuesta de GET /api/dns. Server es nil si no hay servidor DNS.
@@ -38,7 +37,7 @@ type DNSOverview struct {
 	ListError string         `json:"list_error"`
 }
 
-// Overview devuelve el servidor DNS y todas las demás VMs con su registro y su resolvedor. Si
+// Overview devuelve el servidor DNS y todas las demás VMs con su registro. Si
 // list-vms.sh falla, las VMs quedan en "unknown", ListError explica el motivo y la lectura fallida
 // se guarda como list_dns en el historial (REQ-35).
 func (s *DNSService) Overview(ctx context.Context) (DNSOverview, error) {
@@ -70,11 +69,6 @@ func (s *DNSService) Overview(ctx context.Context) (DNSOverview, error) {
 	for _, rec := range recs {
 		recordIP[rec.VM] = rec.IP
 	}
-	resolvers, err := s.dnsRepo.Resolvers(ctx)
-	if err != nil {
-		return DNSOverview{}, err
-	}
-
 	states, listErr, failed := queryVMStates(ctx, s.runner, s.logger)
 	if failed != nil {
 		failed.Module, failed.Operation, failed.VM = dnsModule, "list_dns", "-"
@@ -96,7 +90,7 @@ func (s *DNSService) Overview(ctx context.Context) (DNSOverview, error) {
 			continue
 		}
 		vm := DNSVMView{Name: row.Name, Kind: webType[row.Name], Role: "vm", State: status.state, IP: status.ip,
-			RecordIP: recordIP[row.Name], Resolver: slices.Contains(resolvers, row.Name)}
+			RecordIP: recordIP[row.Name]}
 		switch {
 		case isLB[row.Name]:
 			vm.Role = "lb"
@@ -223,19 +217,11 @@ func mapCreateDNSError(err error) error {
 }
 
 // DeleteDNS elimina el servidor DNS con delete-vm.sh (VM y disco diferencial) y, si termina bien,
-// borra en una transacción todos los registros, el servidor y su fila de vms (REQ-21). Mientras
-// alguna VM lo use como resolvedor, aunque esté apagada, se rechaza sin llamar al script (REQ-33).
+// borra en una transacción todos los registros, el servidor y su fila de vms (REQ-21).
 func (s *DNSService) DeleteDNS(ctx context.Context) (string, error) {
 	name, err := s.server(ctx)
 	if err != nil {
 		return "", err
-	}
-	resolvers, err := s.dnsRepo.Resolvers(ctx)
-	if err != nil {
-		return "", err
-	}
-	if len(resolvers) > 0 {
-		return "", &ResolversSetError{VMs: resolvers}
 	}
 	if _, err := s.ops.run(ctx, "delete_dns", name, "prepare/delete-vm.sh", []string{name}, true,
 		s.dnsRepo.DeleteServer); err != nil {

@@ -54,7 +54,7 @@ describe("DnsServerPanel", () => {
   });
 
   it("AC-29 delete names the server, waits for Confirmar and shows the rejection", async () => {
-    const text = "Quite primero el resolvedor DNS de las VMs: vm1";
+    const text = "Operación en curso en esta VM";
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(409, { error: text }));
     const user = userEvent.setup();
     render(<DnsServerPanel server={SERVER} busy={false} onDone={vi.fn()} />);

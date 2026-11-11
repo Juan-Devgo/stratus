@@ -15,13 +15,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { VmRole } from "@/features/prepare/types";
 import { useOperation } from "@/features/prepare/useOperation";
 import { KIND_LABELS, STATE_LABELS } from "@/features/prepare/VmSelector";
 
-import { addRecords, removeRecord, setResolver } from "./api";
+import { addRecords, removeRecord } from "./api";
 import type { DnsVm, RecordResult } from "./types";
 
 type Props = { vms: DnsVm[]; busy: boolean; onDone(): void };
@@ -33,10 +32,9 @@ function kindLabel(vm: DnsVm): string {
   return KIND_LABELS[vm.kind] || ROLE_LABELS[vm.role];
 }
 
-// Las VMs que no son el servidor DNS, con su registro A y su resolvedor. Las que no tienen registro
-// llevan una casilla para "Agregar registros" (REQ-23), que muestra el resultado de cada una; las que
-// lo tienen, "Quitar registro" con confirmación (REQ-24). El Switch pone o quita el servidor DNS como
-// resolvedor de la VM (REQ-31).
+// Las VMs que no son el servidor DNS, con su registro A. Las que no tienen registro llevan una
+// casilla para "Agregar registros" (REQ-23), que muestra el resultado de cada una; las que lo
+// tienen, "Quitar registro" con confirmación (REQ-24).
 export function RecordTable({ vms, busy, onDone }: Props) {
   const { pending, result, run } = useOperation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -101,7 +99,6 @@ export function RecordTable({ vms, busy, onDone }: Props) {
               <TableHead>IP</TableHead>
               <TableHead>Registro</TableHead>
               <TableHead>IP del registro</TableHead>
-              <TableHead>Resolvedor</TableHead>
               <TableHead>Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -124,19 +121,6 @@ export function RecordTable({ vms, busy, onDone }: Props) {
                 <TableCell>{vm.ip || "-"}</TableCell>
                 <TableCell>{vm.fqdn || "-"}</TableCell>
                 <TableCell>{vm.record_ip || "-"}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      aria-label={`Usar como resolvedor en ${vm.name}`}
-                      checked={vm.resolver}
-                      disabled={disabled}
-                      onCheckedChange={(checked) =>
-                        void perform(`resolver:${vm.name}`, () => setResolver(vm.name, checked))
-                      }
-                    />
-                    {active === `resolver:${vm.name}` && <Spinner aria-label="Cargando" />}
-                  </div>
-                </TableCell>
                 <TableCell>
                   {vm.record_ip !== "" && (
                     <Button variant="outline" size="sm" disabled={disabled} onClick={() => setRemoving(vm.name)}>

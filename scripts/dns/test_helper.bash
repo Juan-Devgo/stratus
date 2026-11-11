@@ -16,13 +16,6 @@
 #                             lectura responde el siguiente valor de la lista ("-" sin IP; al
 #                             acabarse se repite el último). "startvm" la deja running y el stub de
 #                             stop-vm.sh, poweroff.
-#   resolver_program_file     imprime la ruta del stdin de la llamada a ssh del programa del
-#                             resolvedor (la que lleva "stratus-resolver" en el comando remoto).
-#   run_resolver_program <archivo> <dhclient|dhcpcd|none> <set|unset> <ip>
-#                             ejecuta ese programa en esta máquina sobre la raíz falsa
-#                             "$BATS_TEST_TMPDIR/root" (RROOT): /etc y /usr/lib/dhcpcd se reescriben
-#                             a RROOT y el PATH solo trae las herramientas básicas más un
-#                             dhclient o un dhcpcd vacío, para no depender del equipo.
 #
 # Variables que dejan las funciones:
 #   DNS_DIR   scripts/dns original (para assert_script_structure)
@@ -41,9 +34,6 @@
 #                         restauración funciona); failall las hace fallar todas.
 #   CURRENT_ZONE=<texto>  salida de "cat /var/lib/bind/db.*" (la zona actual); sin definir, el
 #                         archivo no existe y cat sale con 1.
-#   DHCP_CLIENT=dhclient|dhcpcd|none
-#                         cliente DHCP del invitado para los programas del resolvedor: con none
-#                         el programa remoto sale con 3 (por defecto dhclient).
 #   DIG_OUT=<texto>       salida de dig (por defecto la IP del servidor DNS, 192.168.1.53).
 #   DNS_IFACE=<nombre>    interfaz con la MAC buscada en /sys/class/net (por defecto enp0s3).
 
@@ -109,10 +99,6 @@ if [[ "$flat" == "cat /var/lib/bind/db."* ]]; then
   printf '%s\n' "$CURRENT_ZONE"
   exit 0
 fi
-if [[ "$flat" == *"stratus-resolver"* && "${DHCP_CLIENT:-dhclient}" == none ]]; then
-  echo "No se encontró un cliente DHCP compatible" >&2
-  exit 3
-fi
 if [[ "$flat" == *"/sys/class/net"* ]]; then
   printf '%s\n' "${DNS_IFACE:-enp0s3}"
   exit 0
@@ -169,29 +155,4 @@ if [[ \"\$1 \${2:-}\" == \"guestproperty get\" && \"\${3:-}\" == \"$vm\" && \"\$
   fi
   exit 0
 fi"
-}
-
-# resolver_program_file
-resolver_program_file() {
-  local n
-  n="$(grep -n -m1 'stratus-resolver' "$BATS_TEST_TMPDIR/remote.log" | cut -d: -f1)"
-  [[ -n "$n" ]] || { echo "no hubo llamada con stratus-resolver" >&2; return 1; }
-  echo "$BATS_TEST_TMPDIR/stdin/$n"
-}
-
-# run_resolver_program <archivo> <dhclient|dhcpcd|none> <set|unset> <ip>
-run_resolver_program() {
-  local file="$1" client="$2" tmp="$BATS_TEST_TMPDIR" tool
-  RROOT="$tmp/root"
-  mkdir -p "$RROOT/etc/dhcp" "$tmp/rbin"
-  for tool in sh sed grep cat mv rm mkdir head chmod mktemp cp; do
-    ln -sf "$(command -v "$tool")" "$tmp/rbin/$tool"
-  done
-  rm -f "$tmp/rbin/dhclient" "$tmp/rbin/dhcpcd"
-  if [[ "$client" != none ]]; then
-    printf '#!/bin/sh\n' >"$tmp/rbin/$client"
-    chmod +x "$tmp/rbin/$client"
-  fi
-  sed -e "s#/etc/#$RROOT/etc/#g" -e "s#/usr/lib/dhcpcd/#$RROOT/usr/lib/dhcpcd/#g" "$file" >"$tmp/resolver.sh"
-  PATH="$tmp/rbin" sh "$tmp/resolver.sh" stratus-resolver "$3" "$4"
 }

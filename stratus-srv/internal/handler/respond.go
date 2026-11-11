@@ -92,15 +92,10 @@ func writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, errorBody{lbOff.Message})
 		return
 	}
-	// Paquete protegido y resolvedores activos: el texto nombra el paquete o las VMs.
+	// Paquete protegido: el texto nombra el paquete.
 	var blocked *service.PackageBlockedError
 	if errors.As(err, &blocked) {
 		writeJSON(w, http.StatusConflict, errorBody{blocked.Message})
-		return
-	}
-	var resolvers *service.ResolversSetError
-	if errors.As(err, &resolvers) {
-		writeJSON(w, http.StatusConflict, errorBody{resolvers.Error()})
 		return
 	}
 	var serverRecord *service.ServerRecordError

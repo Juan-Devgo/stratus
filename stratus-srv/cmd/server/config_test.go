@@ -106,6 +106,21 @@ func TestAC3_LoadConfigRejectsRelativeHAProxyBaseDisk(t *testing.T) {
 	}
 }
 
+// Los discos base que reciben create-vm.sh y create-lb.sh deben ser rutas absolutas: los scripts
+// corren con otro directorio de trabajo.
+func TestLoadConfigRequiresAbsoluteDisks(t *testing.T) {
+	for _, name := range []string{"APP_BASE_DISK", "APP_HAPROXY_BASE_DISK"} {
+		t.Run(name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv(name, "relative/image.vdi")
+			_, err := loadConfig()
+			if err == nil || !strings.Contains(err.Error(), name) {
+				t.Fatalf("loadConfig() error = %v; debe rechazar la ruta relativa de %s", err, name)
+			}
+		})
+	}
+}
+
 // AC-24: el servidor arranca sin las variables de servidores web y DNS; se revisan al usarlas
 // (REQ-15). APP_DNS_DOMAIN tiene el valor por defecto stratus.lan.
 func TestAC24_ConfigOptionalDNS(t *testing.T) {

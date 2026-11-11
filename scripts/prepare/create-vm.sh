@@ -11,7 +11,7 @@
 #   cpus            número de CPUs, entero entre 1 y 4
 #   base_disk       ruta absoluta del disco base (APP_BASE_DISK en el backend)
 #   bridge_adapter  interfaz del host a la que se conecta la red en puente (APP_BRIDGE_ADAPTER),
-#                   ^[A-Za-z0-9._:-]{1,64}$; debe aparecer en "VBoxManage list bridgedifs"
+#                   ^[A-Za-z0-9._:()+? -]{1,64}$; debe aparecer en "VBoxManage list bridgedifs"
 #   intnet_name     (opcional) red interna de VirtualBox a la que se conecta una segunda NIC,
 #                   ^stratus-[a-z0-9][a-z0-9-]{0,31}$; la usa create-lb.sh (004). Sin él la VM
 #                   tiene una sola NIC en puente, como siempre
@@ -24,12 +24,12 @@
 #                            fijados van en <ruta>.known_hosts
 #
 # Requisitos del disco base (los prepara el equipo una sola vez, a mano):
-#   - Debian 13 instalado en una VM con el firmware BIOS por defecto de VirtualBox y una sola NIC.
+#   - Debian 13 de la arquitectura del host, instalado con UEFI en ARM64 o BIOS en x86-64, y una NIC.
 #   - Guest Additions instaladas y arrancando con el sistema.
 #   - openssh-server instalado.
 #   - sudo instalado.
 #   - La contraseña de root es el contenido de APP_GUEST_PASSWORD_FILE.
-#   - El disco no está conectado como disco normal a otra VM; este script lo marca multiattach.
+#   - El disco no está conectado a otra VM; este script lo registra como multiattach al conectarlo.
 #
 # Salida:
 #   stdout  "VM <vm_name> creada y encendida; IP <ipv4>"
@@ -38,7 +38,7 @@
 # Códigos de salida:
 #   0   éxito: la VM quedó creada, preparada, encendida y accesible por SSH en su IP
 #   2   argumentos inválidos o variables de entorno faltantes
-#   4   fallo de VBoxManage al crear o configurar la VM, o no se pudo marcar el disco multiattach
+#   4   fallo de VBoxManage al crear o configurar la VM, incluido conectar el disco multiattach
 #   5   Guest Additions no respondió, el bootstrap falló, no hay IP tras reiniciar o falló SSH
 #   6   disco base no encontrado, interfaz de puente no encontrada o VM ya registrada en VirtualBox
 #   99  operación no implementada
@@ -65,7 +65,7 @@ set -euo pipefail
 # 1.3 Validar que memory_mb (512-8192) y cpus (1-4) sean enteros en rango (solo dígitos antes de
 #     comparar); si no, salir con 2.
 # 1.4 Validar que base_disk sea una ruta absoluta sin caracteres de control y que bridge_adapter
-#     cumpla ^[A-Za-z0-9._:-]{1,64}$; si no, salir con 2. Si hay intnet_name, debe cumplir
+#     cumpla ^[A-Za-z0-9._:()+? -]{1,64}$; si no, salir con 2. Si hay intnet_name, debe cumplir
 #     ^stratus-[a-z0-9][a-z0-9-]{0,31}$.
 # 1.5 Exigir que APP_GUEST_PASSWORD_FILE sea un archivo legible y que exista
 #     "$APP_SSH_KEY_PATH.pub"; si no, salir con 2.
@@ -104,8 +104,9 @@ fi
 if [[ ! "$base_disk" =~ ^/[^[:cntrl:]]*$ ]]; then
   fail 2 "base_disk inválido: debe ser una ruta absoluta"
 fi
-if [[ ! "$bridge_adapter" =~ ^[A-Za-z0-9._:-]{1,64}$ ]]; then
-  fail 2 'bridge_adapter inválido: debe cumplir ^[A-Za-z0-9._:-]{1,64}$'
+bridge_pattern='^[A-Za-z0-9._:()+? -]{1,64}$'
+if [[ ! "$bridge_adapter" =~ $bridge_pattern ]]; then
+  fail 2 'bridge_adapter inválido: use 1-64 letras, números, espacios o . _ : ( ) + ? -'
 fi
 
 if (($# == 6)) && [[ ! "$intnet_name" =~ ^stratus-[a-z0-9][a-z0-9-]{0,31}$ ]]; then
@@ -120,15 +121,13 @@ if [[ -z "${APP_SSH_KEY_PATH:-}" || ! -r "$APP_SSH_KEY_PATH.pub" ]]; then
 fi
 
 # == 2. Comprobaciones antes de crear nada ==
-# Ninguna de estas comprobaciones registra una VM ni toca el disco base, salvo marcarlo multiattach.
+# Ninguna de estas comprobaciones registra una VM ni toca el disco base.
 # 2.1 Si base_disk no es un archivo legible, imprimir "Disco base no encontrado: <ruta>" y salir
 #     con 6.
 # 2.2 Si bridge_adapter no está entre las líneas "Name:" de "VBoxManage list bridgedifs", imprimir
 #     "Interfaz de puente no encontrada: <nombre>" y salir con 6.
-# 2.3 Si "VBoxManage showmediuminfo disk <base_disk>" no informa "Type: multiattach", marcarlo con
-#     "VBoxManage modifymedium disk <base_disk> --type multiattach" (idempotente: si ya lo es no se
-#     llama). Si falla, imprimir "No se pudo marcar el disco base como multiattach; verifique que
-#     no esté conectado a otra VM" y salir con 4.
+# 2.3 Leer "VBoxManage list systemproperties": elegir Debian13_arm64 si solo admite ARMv8, o
+#     Debian13_64 en otro caso. Si la consulta falla, salir con 4.
 # 2.4 Si "VBoxManage showvminfo <vm_name>" termina con 0, la VM ya está registrada: imprimir
 #     "VM ya registrada en VirtualBox" y salir con 6 sin modificarla.
 
@@ -141,15 +140,33 @@ if ! sed -n 's/^Name:[[:space:]]*//p' <<<"$bridges" | sed 's/[[:space:]]*$//' | 
   fail 6 "Interfaz de puente no encontrada: $bridge_adapter"
 fi
 
-# Si showmediuminfo falla, el tipo queda vacío y se intenta marcar el disco igualmente.
+# VirtualBox 7.2 solo puede convertir un medio normal a multiattach después de haberlo registrado
+# una vez en una VM. Recordar el tipo ahora permite hacer ese ciclo tras crear el controlador. Un
+# multiattach sin VM propietaria ni hijos quedó huérfano al borrar su último diferencial.
 medium_info="$(VBoxManage showmediuminfo disk "$base_disk" 2>/dev/null || true)"
-if ! grep -qE '^Type:[[:space:]]+multiattach' <<<"$medium_info"; then
-  VBoxManage modifymedium disk "$base_disk" --type multiattach >&2 ||
-    fail 4 "No se pudo marcar el disco base como multiattach; verifique que no esté conectado a otra VM"
+base_is_multiattach=no
+base_is_orphaned=no
+grep -qE '^Type:[[:space:]]+multiattach' <<<"$medium_info" && base_is_multiattach=yes
+if [[ "$base_is_multiattach" == yes ]] &&
+  ! grep -qE '^(In use by VMs:|Child UUIDs:)' <<<"$medium_info"; then
+  base_is_orphaned=yes
+fi
+
+system_properties="$(VBoxManage list systemproperties)" || fail 4 "VBoxManage list systemproperties falló"
+supported_arches="$(sed -n 's/^Supported platform architectures:[[:space:]]*//p' <<<"$system_properties")"
+guest_ostype=Debian13_64
+if [[ "$supported_arches" == *ARMv8* && "$supported_arches" != *x86* ]]; then
+  guest_ostype=Debian13_arm64
 fi
 
 if VBoxManage showvminfo "$vm_name" >/dev/null 2>&1; then
   fail 6 "VM ya registrada en VirtualBox"
+fi
+
+if [[ "$base_is_orphaned" == yes ]]; then
+  VBoxManage modifymedium disk "$base_disk" --type normal >&2 ||
+    fail 4 "No se pudo recuperar el disco base multiattach sin VMs"
+  base_is_multiattach=no
 fi
 
 # == 3. Limpieza en caso de fallo ==
@@ -161,7 +178,7 @@ fi
 #     si es un disco diferencial (su "Parent UUID:" existe y no es "base"), anotarlo.
 # 3.3 "VBoxManage storageattach <vm_name> ... --medium none" para soltar el disco.
 # 3.4 Solo si el disco es diferencial: "VBoxManage closemedium disk <uuid> --delete". El disco base
-#     (sin padre) nunca se cierra, se borra ni se modifica.
+#     (sin padre) nunca se cierra ni se borra durante la limpieza.
 # 3.5 "VBoxManage unregistervm <vm_name> --delete".
 
 # read_state: deja el estado de energía de la VM en "state" (vacío si VBoxManage no la conoce).
@@ -213,20 +230,23 @@ cleanup() {
 }
 
 # == 4. Crear y configurar la VM ==
-# 4.1 "VBoxManage createvm --name <vm_name> --ostype Debian_64 --register". Si falla no hay nada
-#     que limpiar (y no se debe borrar una VM ajena con ese nombre): salir con 4.
+# 4.1 "VBoxManage createvm --name <vm_name> --ostype <guest_ostype> --register". Si falla no hay
+#     nada que limpiar (y no se debe borrar una VM ajena con ese nombre): salir con 4.
 # 4.2 Desde aquí, instalar el "trap" de la sección 3. Cualquier fallo siguiente sale con 4.
-# 4.3 "VBoxManage modifyvm <vm_name> --memory <memory_mb> --cpus <cpus> --ioapic on --nic1 bridged
-#     --bridgeadapter1 <bridge_adapter>": sin reenvío de puertos; la IP viene del DHCP de la LAN.
-#     Con intnet_name se agrega "--nic2 intnet --intnet2 <intnet_name>" en el mismo comando, para
-#     que la NIC 2 exista desde el primer arranque.
+# 4.3 "VBoxManage modifyvm <vm_name> --memory <memory_mb> --cpus <cpus> --ioapic on
+#     --graphicscontroller vmsvga --vram 16 --nic1 bridged --bridgeadapter1 <bridge_adapter>":
+#     VMSVGA evita el conflicto de RAM del VBoxVGA predeterminado en invitados ARM64; sin reenvío
+#     de puertos, la IP viene del DHCP de la LAN. Con intnet_name se agrega
+#     "--nic2 intnet --intnet2 <intnet_name>" para que la NIC 2 exista desde el primer arranque.
 # 4.4 "VBoxManage storagectl <vm_name> --name SATA --add sata --controller IntelAhci".
-# 4.5 "VBoxManage storageattach <vm_name> --storagectl SATA --port 0 --device 0 --type hdd
-#     --mtype multiattach --medium <base_disk>": VirtualBox crea el disco diferencial de la VM y
-#     no se crea ningún disco nuevo.
-# 4.6 "VBoxManage startvm <vm_name> --type headless".
+# 4.5 Si el disco todavía es normal, conectarlo una vez con "--mtype normal" y soltarlo con
+#     "--medium none". VirtualBox 7.2 necesita ese ciclo para registrar el medio antes de cambiarlo.
+# 4.6 "VBoxManage storageattach <vm_name> --storagectl SATA --port 0 --device 0 --type hdd
+#     --mtype multiattach --medium <base_disk>": VirtualBox cambia el disco base a multiattach y
+#     crea el disco diferencial de la VM. No se crea un disco independiente.
+# 4.7 "VBoxManage startvm <vm_name> --type headless".
 
-VBoxManage createvm --name "$vm_name" --ostype Debian_64 --register >&2 ||
+VBoxManage createvm --name "$vm_name" --ostype "$guest_ostype" --register >&2 ||
   fail 4 "No se pudo crear la VM $vm_name"
 
 trap cleanup EXIT
@@ -238,9 +258,16 @@ if [[ -n "$intnet_name" ]]; then
   nic2_args=(--nic2 intnet --intnet2 "$intnet_name")
 fi
 VBoxManage modifyvm "$vm_name" --memory "$memory_mb" --cpus "$cpus" --ioapic on \
-  --nic1 bridged --bridgeadapter1 "$bridge_adapter" "${nic2_args[@]}" >&2 || fail 4 "No se pudo configurar la VM $vm_name"
+  --graphicscontroller vmsvga --vram 16 --nic1 bridged --bridgeadapter1 "$bridge_adapter" \
+  "${nic2_args[@]}" >&2 || fail 4 "No se pudo configurar la VM $vm_name"
 VBoxManage storagectl "$vm_name" --name SATA --add sata --controller IntelAhci >&2 ||
   fail 4 "No se pudo agregar el controlador SATA a $vm_name"
+if [[ "$base_is_multiattach" == no ]]; then
+  VBoxManage storageattach "$vm_name" --storagectl SATA --port 0 --device 0 --type hdd \
+    --mtype normal --medium "$base_disk" >&2 || fail 4 "No se pudo registrar el disco base en $vm_name"
+  VBoxManage storageattach "$vm_name" --storagectl SATA --port 0 --device 0 --medium none >&2 ||
+    fail 4 "No se pudo soltar el disco base normal de $vm_name"
+fi
 VBoxManage storageattach "$vm_name" --storagectl SATA --port 0 --device 0 --type hdd \
   --mtype multiattach --medium "$base_disk" >&2 || fail 4 "No se pudo conectar el disco base a $vm_name"
 VBoxManage startvm "$vm_name" --type headless >&2 || fail 4 "No se pudo encender la VM $vm_name"

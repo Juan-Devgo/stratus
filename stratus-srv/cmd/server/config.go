@@ -67,9 +67,15 @@ func loadConfig() (config, error) {
 		return config{}, fmt.Errorf("faltan variables de entorno obligatorias: %s", strings.Join(missing, ", "))
 	}
 
-	// create-lb.sh recibe la ruta como argumento y corre con otro directorio de trabajo: debe ser absoluta.
-	if !filepath.IsAbs(cfg.HAProxyBaseDisk) {
-		return config{}, fmt.Errorf("APP_HAPROXY_BASE_DISK debe ser una ruta absoluta")
+	// create-vm.sh y create-lb.sh reciben la ruta como argumento y corren con otro directorio de
+	// trabajo: debe ser absoluta.
+	for _, disk := range []struct{ name, path string }{
+		{"APP_BASE_DISK", cfg.BaseDisk},
+		{"APP_HAPROXY_BASE_DISK", cfg.HAProxyBaseDisk},
+	} {
+		if !filepath.IsAbs(disk.path) {
+			return config{}, fmt.Errorf("%s debe ser una ruta absoluta", disk.name)
+		}
 	}
 
 	scriptsDir, err := filepath.Abs(getenv("APP_SCRIPTS_DIR", "../scripts"))

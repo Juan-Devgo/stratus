@@ -2,5 +2,9 @@
 services:
   stratus-ui:
     build: ./stratus-ui
-    # Red del host: nginx escucha en 127.0.0.1:3000 y alcanza el backend en 127.0.0.1:8080
-    network_mode: host
+    # La UI queda disponible solo en el host local; no se expone a la red.
+    ports:
+      - "127.0.0.1:3000:3000"
+    # Nombre portable para que nginx llegue al backend Go nativo en macOS y Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

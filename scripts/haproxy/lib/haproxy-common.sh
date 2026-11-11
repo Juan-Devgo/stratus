@@ -95,8 +95,9 @@ validate_base_disk() {
 }
 
 validate_bridge() {
-  if [[ ! "${1-}" =~ ^[A-Za-z0-9._:-]{1,64}$ ]]; then
-    echo 'bridge_adapter inválido: debe cumplir ^[A-Za-z0-9._:-]{1,64}$' >&2
+  local pattern='^[A-Za-z0-9._:()+? -]{1,64}$'
+  if [[ ! "${1-}" =~ $pattern ]]; then
+    echo 'bridge_adapter inválido: use 1-64 letras, números, espacios o . _ : ( ) + ? -' >&2
     return 1
   fi
 }

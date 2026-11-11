@@ -17,10 +17,13 @@ let historyRows: unknown[] = [];
 
 // Responde cada endpoint de carga de la pantalla con su propio cuerpo.
 function mockApi(vmsBody: unknown) {
-  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (url === "/api/prepare/catalog") {
       return jsonResponse({ packages: CATALOG });
+    }
+    if (url === "/api/prepare/vms" && init?.method === "POST") {
+      return jsonResponse({ message: "VM vm1 creada y encendida; IP 192.168.1.50" });
     }
     if (url === "/api/prepare/vms") {
       return jsonResponse(vmsBody);
@@ -89,14 +92,67 @@ describe("Prepare", () => {
     expect(screen.getByRole("option", { name: "vm2 - Desconocido - -" })).toBeInTheDocument();
   });
 
-  it("AC-26 create card describes the base-disk clone", async () => {
+  it("AC-26 create dialog describes the base-disk clone", async () => {
     mockApi({ vms: [], list_error: "" });
+    const user = userEvent.setup();
     render(<Prepare />);
 
-    const description = await screen.findByText(/Crea un clon de Debian 13 sobre el disco base compartido/);
+    expect(screen.queryByText(/Crea un clon de Debian 13/)).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Crear VM" }));
+
+    const description = within(screen.getByRole("dialog")).getByText(/Crea un clon de Debian 13 sobre el disco base compartido/);
     expect(description).toHaveTextContent("disco diferencial, red en puente, IP por DHCP");
     expect(description).toHaveTextContent("Puede tardar varios minutos");
     expect(screen.queryByText(/Instalación desatendida/)).not.toBeInTheDocument();
+  });
+
+  it("splits the screen into create and operations categories", async () => {
+    mockApi({ vms: [], list_error: "" });
+    render(<Prepare />);
+
+    const headings = (await screen.findAllByRole("heading", { level: 2 })).map((h) => h.textContent);
+    expect(headings).toEqual(["Crear VM", "Operaciones sobre la VM"]);
+  });
+
+  it("AC-1 creates a VM from the dialog and shows the result in both places", async () => {
+    const fetchSpy = mockApi({ vms: [], list_error: "" });
+    const user = userEvent.setup();
+    render(<Prepare />);
+
+    await user.click(await screen.findByRole("button", { name: "Crear VM" }));
+    const dialog = within(screen.getByRole("dialog"));
+    await user.type(dialog.getByLabelText("Nombre"), "vm1");
+    await user.click(dialog.getByRole("button", { name: "Crear VM" }));
+
+    expect(await screen.findAllByText("VM vm1 creada y encendida; IP 192.168.1.50")).toHaveLength(2);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/prepare/vms",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "vm1", memory_mb: 2048, cpus: 2 }) }),
+    );
+  });
+
+  it("AC-21 keeps showing the progress on the page after closing the dialog", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input) === "/api/prepare/vms" && init?.method === "POST") {
+        return new Promise<Response>(() => {});
+      }
+      return jsonResponse(String(input) === "/api/prepare/history" ? { operations: [] } : { vms: [], list_error: "", packages: [] });
+    });
+    const user = userEvent.setup();
+    render(<Prepare />);
+
+    await user.click(await screen.findByRole("button", { name: "Crear VM" }));
+    const dialog = within(screen.getByRole("dialog"));
+    await user.type(dialog.getByLabelText("Nombre"), "vm1");
+    await user.click(dialog.getByRole("button", { name: "Crear VM" }));
+    expect(await dialog.findByRole("status", { name: "Cargando" })).toBeInTheDocument();
+
+    await user.click(dialog.getByRole("button", { name: "Cerrar" }));
+
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText(/Creando la VM vm1/)).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Cargando" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Crear VM" })).toBeDisabled();
   });
 
   it("AC-23 the Preparar sistema card opens the module screen", async () => {

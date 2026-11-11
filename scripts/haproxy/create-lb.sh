@@ -13,7 +13,8 @@
 #   memory_mb       memoria en MB, entero entre 512 y 8192
 #   cpus            número de CPUs, entero entre 1 y 4
 #   base_disk       ruta absoluta del disco base de HAProxy (APP_HAPROXY_BASE_DISK en el backend)
-#   bridge_adapter  interfaz del host para la red en puente (APP_BRIDGE_ADAPTER), ^[A-Za-z0-9._:-]{1,64}$
+#   bridge_adapter  interfaz del host para la red en puente (APP_BRIDGE_ADAPTER),
+#                   ^[A-Za-z0-9._:()+? -]{1,64}$
 #   reserved        subredes N ya usadas por balanceadores de la app: "-" (ninguna) o "1,3,..."
 #
 # Variables de entorno:

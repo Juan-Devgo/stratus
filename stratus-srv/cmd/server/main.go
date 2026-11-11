@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -105,10 +106,7 @@ func main() {
 		vms, lbs, history, locks, logger)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
+	registerHealthz(mux)
 	handler.RegisterPrepare(mux, prepare)
 	handler.RegisterUsers(mux, users)
 	handler.RegisterServices(mux, services)
@@ -123,5 +121,19 @@ func main() {
 		WriteTimeout:      writeTimeout,
 	}
 	logger.Printf("escuchando en %s (scripts en %s)", cfg.ListenAddr, cfg.ScriptsDir)
-	logger.Fatal(srv.ListenAndServe())
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Fatal(err)
+	}
+}
+
+// registerHealthz registra GET /healthz, que responde {"status":"ok"} mientras el proceso vive.
+func registerHealthz(mux *http.ServeMux) {
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(struct {
+			Status string `json:"status"`
+		}{Status: "ok"}); err != nil {
+			log.Printf("no se pudo responder healthz: %v", err)
+		}
+	})
 }
